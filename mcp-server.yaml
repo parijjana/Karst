@@ -1,11 +1,46 @@
-name: code-graph-server
-type: command_per_client
-command: uv run python -m src.main
+schema_version: 1
+id: code-graph-server
+name: Code Graph Server
+version: 0.1.0
+description: Stores a queryable knowledge graph for each project.
+
+enabled: true
+autostart: false
+restart_policy: on_failure
+
+lifecycle:
+  type: command_per_client
+
+entrypoint:
+  type: command
+  command: uv
+  args:
+    - run
+    - python
+    - -m
+    - src.main
+  working_directory: .
+
+transport:
+  type: stdio
+
 scripts:
-  start: uv run python -m src.main
-  test: uv run pytest
+  start: scripts/start.ps1
+  test: scripts/test.ps1
+
 health:
   type: mcp_initialize
-logging:
+  timeout_seconds: 5
+
+ports: []
+
+logs:
   stdout: logs/stdout.log
   stderr: logs/stderr.log
+
+metadata:
+  repository: ""
+  license: MIT
+  tags:
+    - code-graph
+    - knowledge-graph
