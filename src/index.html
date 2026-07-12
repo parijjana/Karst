@@ -30,9 +30,9 @@
         
         /* Left Panel Styles */
         #left-panel {
-            width: 450px;
+            width: 50vw;
             min-width: 300px;
-            max-width: 800px;
+            max-width: 90vw;
             flex-shrink: 0;
             height: 100%;
             overflow-y: auto;
@@ -183,6 +183,9 @@
     <div id="resizer"></div>
 
     <div id="graph-container">
+        <button onclick="if(graphInstance) graphInstance.zoomToFit(400, 50)" style="position:absolute; top:20px; right:20px; z-index:100; background:var(--panel-bg); color:var(--accent-cyan); border:1px solid var(--border-color); padding:8px 12px; border-radius:6px; cursor:pointer; font-family:inherit; font-weight:bold; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+            &#x21BA; Reset Graph View
+        </button>
         <div class="legend">
             <div class="legend-item"><div class="dot" style="background: var(--accent-violet);"></div> Folders</div>
             <div class="legend-item"><div class="dot" style="background: var(--node-file);"></div> Files</div>
@@ -233,6 +236,9 @@
                     // Center on node
                     graphInstance.centerAt(node.x, node.y, 1000);
                     graphInstance.zoom(8, 2000);
+                })
+                .onBackgroundClick(() => {
+                    graphInstance.zoomToFit(400, 50);
                 });
 
             // Fetch global graph data
@@ -332,6 +338,24 @@
             
             try {
                 const gData = await fetchJSON('/api/graph');
+                
+                const groupKeys = [...new Set(gData.nodes.map(n => n.group))].filter(g => g !== undefined && g !== null);
+                const groups = {};
+                groupKeys.forEach((k, i) => {
+                    const angle = i * 2 * Math.PI / groupKeys.length;
+                    const radius = Math.max(500, groupKeys.length * 150);
+                    groups[k] = { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+                });
+                graphInstance.d3Force('cluster', (alpha) => {
+                    gData.nodes.forEach(node => {
+                        if (node.group !== undefined && node.group !== null && groups[node.group]) {
+                            node.vx -= (node.x - groups[node.group].x) * alpha * 0.05;
+                            node.vy -= (node.y - groups[node.group].y) * alpha * 0.05;
+                        }
+                    });
+                });
+                graphInstance.d3Force('charge').strength(-80);
+                
                 graphInstance.graphData(gData);
                 setTimeout(() => graphInstance.zoomToFit(400, 50), 500);
             } catch(e) {}
@@ -397,7 +421,7 @@
             if (!isResizing) return;
             const newWidth = e.clientX;
             // Respect min/max bounds
-            if (newWidth >= 300 && newWidth <= 800) {
+            if (newWidth >= 300 && newWidth <= window.innerWidth * 0.9) {
                 leftPanel.style.width = `${newWidth}px`;
             }
         });
