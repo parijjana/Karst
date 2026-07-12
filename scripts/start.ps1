@@ -1,2 +1,2 @@
 #!/usr/bin/env pwsh
-uv run python -m src.main
+uv --quiet run python -m src.main

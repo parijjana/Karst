@@ -15,6 +15,7 @@ entrypoint:
   type: command
   command: uv
   args:
+    - --quiet
     - run
     - python
     - -m

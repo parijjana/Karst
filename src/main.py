@@ -43,8 +43,12 @@ def index_project(project_name: str, root_path: str) -> str:
         return f"Failed to add project {project_name}"
         
     valid_exts = {".py", ".js", ".ts", ".dart"}
+    ignore_dirs = {".git", ".venv", "node_modules", "build", "dist", ".uv-cache", "__pycache__"}
     count = 0
-    for root, _, files in os.walk(root_path):
+    for root, dirs, files in os.walk(root_path):
+        # Modify dirs in-place to prevent os.walk from visiting ignored directories
+        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        
         for file in files:
             ext = Path(file).suffix
             if ext in valid_exts:
