@@ -37,6 +37,7 @@
             flex-shrink: 0;
             height: 100%;
             overflow-y: auto;
+            overflow-x: hidden;
             background-color: rgba(15, 23, 42, 0.95);
             z-index: 10;
             display: flex;
@@ -118,6 +119,8 @@
         /* Right Panel */
         #right-panel {
             flex-grow: 1;
+            flex-shrink: 1;
+            min-width: 0;
             height: 100%;
             display: flex;
             flex-direction: column;
@@ -220,44 +223,44 @@
         <div id="services-panel">
             <h2>Scripts & Services</h2>
             <div class="panel" id="control-panel">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; margin-bottom: 8px;">
                     <div><strong style="color:var(--text-color);">FileSystem Watchdog</strong> <span id="watchdog-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
-                    <div>
+                    <div style="margin-top: 4px;">
                         <button onclick="controlScript('watchdog', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
                         <button onclick="controlScript('watchdog', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
                     </div>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; margin-bottom: 8px;">
                     <div><strong style="color:var(--text-color);">Deep-Sweep Re-indexer</strong> <span id="reindexer-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
-                    <div>
+                    <div style="margin-top: 4px;">
                         <button onclick="controlScript('reindexer', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
                         <button onclick="controlScript('reindexer', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
                     </div>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; margin-bottom: 8px;">
                     <div><strong style="color:var(--text-color);">Git Auto-Poller</strong> <span id="git_poller-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
-                    <div>
+                    <div style="margin-top: 4px;">
                         <button onclick="controlScript('git_poller', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
                         <button onclick="controlScript('git_poller', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
                     </div>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; margin-bottom: 8px;">
                     <div><strong style="color:var(--text-color);">Database Optimizer</strong> <span id="db_optimizer-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
-                    <div>
+                    <div style="margin-top: 4px;">
                         <button onclick="controlScript('db_optimizer', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
                         <button onclick="controlScript('db_optimizer', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
                     </div>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; margin-bottom: 8px;">
                     <div><strong style="color:var(--text-color);">Vulnerability Scanner</strong> <span id="vuln_scanner-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
-                    <div>
+                    <div style="margin-top: 4px;">
                         <button onclick="controlScript('vuln_scanner', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
                         <button onclick="controlScript('vuln_scanner', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
                     </div>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center;">
                     <div><strong style="color:var(--text-color);">Semantic Embedder</strong> <span id="embedder-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
-                    <div>
+                    <div style="margin-top: 4px;">
                         <button onclick="controlScript('embedder', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
                         <button onclick="controlScript('embedder', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
                     </div>
