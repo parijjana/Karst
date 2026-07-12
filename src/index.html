@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Code Graph Knowledge Base</title>
     <script src="//unpkg.com/force-graph"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --bg-color: #0F172A;
@@ -219,11 +220,46 @@
         <div id="services-panel">
             <h2>Scripts & Services</h2>
             <div class="panel" id="control-panel">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
                     <div><strong style="color:var(--text-color);">FileSystem Watchdog</strong> <span id="watchdog-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
                     <div>
                         <button onclick="controlScript('watchdog', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
                         <button onclick="controlScript('watchdog', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                    <div><strong style="color:var(--text-color);">Deep-Sweep Re-indexer</strong> <span id="reindexer-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
+                    <div>
+                        <button onclick="controlScript('reindexer', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
+                        <button onclick="controlScript('reindexer', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                    <div><strong style="color:var(--text-color);">Git Auto-Poller</strong> <span id="git_poller-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
+                    <div>
+                        <button onclick="controlScript('git_poller', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
+                        <button onclick="controlScript('git_poller', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                    <div><strong style="color:var(--text-color);">Database Optimizer</strong> <span id="db_optimizer-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
+                    <div>
+                        <button onclick="controlScript('db_optimizer', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
+                        <button onclick="controlScript('db_optimizer', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                    <div><strong style="color:var(--text-color);">Vulnerability Scanner</strong> <span id="vuln_scanner-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
+                    <div>
+                        <button onclick="controlScript('vuln_scanner', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
+                        <button onclick="controlScript('vuln_scanner', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div><strong style="color:var(--text-color);">Semantic Embedder</strong> <span id="embedder-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
+                    <div>
+                        <button onclick="controlScript('embedder', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
+                        <button onclick="controlScript('embedder', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
                     </div>
                 </div>
             </div>
@@ -248,9 +284,16 @@
                 </div>
             </div>
 
-            <div id="charts-container">
-                <h3 style="color:var(--text-color);">Service Metrics</h3>
-                <div style="color:#94A3B8; padding:20px 0;">Metrics and charts will be visualized here once tracking is fully enabled.</div>
+            <div id="charts-container" style="padding: 20px; overflow-y: auto;">
+                <h3 style="color:var(--text-color); margin-top:0;">Service Metrics</h3>
+                <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
+                    <div style="background:var(--bg-color); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <canvas id="latencyChart" style="max-height: 250px;"></canvas>
+                    </div>
+                    <div style="background:var(--bg-color); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color);">
+                        <canvas id="tokensChart" style="max-height: 250px;"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -488,18 +531,21 @@
         }
 
         async function pollScriptStatus() {
-            try {
-                const res = await fetchJSON('/api/admin/scripts/watchdog/status');
-                const badge = document.getElementById('watchdog-status');
-                if (res.status === 'running') {
-                    badge.innerHTML = '● Running (PID: ' + res.pid + ')';
-                    badge.style.color = 'var(--node-func)';
-                } else {
-                    badge.innerHTML = '● Stopped';
-                    badge.style.color = '#EF4444';
+            const scripts = ['watchdog', 'reindexer', 'git_poller', 'db_optimizer', 'vuln_scanner', 'embedder'];
+            for (const script of scripts) {
+                try {
+                    const res = await fetchJSON(`/api/admin/scripts/${script}/status`);
+                    const badge = document.getElementById(`${script}-status`);
+                    if (res.status === 'running') {
+                        badge.innerHTML = '● Running (PID: ' + res.pid + ')';
+                        badge.style.color = 'var(--node-func)';
+                    } else {
+                        badge.innerHTML = '● Stopped';
+                        badge.style.color = '#EF4444';
+                    }
+                } catch (e) {
+                    console.error(`Error polling ${script}:`, e);
                 }
-            } catch (e) {
-                console.error(e);
             }
         }
 
@@ -548,7 +594,82 @@
             }
         });
 
-        window.onload = loadDashboard;
+        let latencyChartInstance = null;
+        let tokensChartInstance = null;
+
+        async function loadTelemetryCharts() {
+            try {
+                const data = await fetchJSON('/api/telemetry');
+                if (!data || data.length === 0) return;
+
+                // Group by time_bucket
+                const labels = [...new Set(data.map(d => d.time_bucket))];
+                const tools = [...new Set(data.map(d => d.tool_name))];
+
+                const colors = ['#06B6D4', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#3B82F6'];
+
+                const latencyDatasets = tools.map((tool, i) => {
+                    const color = colors[i % colors.length];
+                    return {
+                        label: tool,
+                        data: labels.map(l => {
+                            const found = data.find(d => d.time_bucket === l && d.tool_name === tool);
+                            return found ? found.avg_latency : 0;
+                        }),
+                        borderColor: color,
+                        backgroundColor: color + '44',
+                        tension: 0.4
+                    };
+                });
+
+                const tokensDatasets = tools.map((tool, i) => {
+                    const color = colors[i % colors.length];
+                    return {
+                        label: tool,
+                        data: labels.map(l => {
+                            const found = data.find(d => d.time_bucket === l && d.tool_name === tool);
+                            return found ? found.total_tokens : 0;
+                        }),
+                        backgroundColor: color,
+                    };
+                });
+
+                Chart.defaults.color = '#94A3B8';
+                Chart.defaults.borderColor = '#334155';
+
+                const ctxLatency = document.getElementById('latencyChart').getContext('2d');
+                if(latencyChartInstance) latencyChartInstance.destroy();
+                latencyChartInstance = new Chart(ctxLatency, {
+                    type: 'line',
+                    data: { labels, datasets: latencyDatasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { title: { display: true, text: 'Average Latency (ms)', color: '#E2E8F0' } }
+                    }
+                });
+
+                const ctxTokens = document.getElementById('tokensChart').getContext('2d');
+                if(tokensChartInstance) tokensChartInstance.destroy();
+                tokensChartInstance = new Chart(ctxTokens, {
+                    type: 'bar',
+                    data: { labels, datasets: tokensDatasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { title: { display: true, text: 'Tokens Saved', color: '#E2E8F0' } }
+                    }
+                });
+
+            } catch(e) {
+                console.error("Failed to load charts:", e);
+            }
+        }
+
+        window.onload = () => {
+            loadDashboard();
+            loadTelemetryCharts();
+        };
     </script>
 </body>
 </html>

@@ -14,7 +14,7 @@ def start_ui():
     print("Starting UI...")
     # CREATE_NEW_PROCESS_GROUP is required to send CTRL_BREAK_EVENT on Windows
     proc = subprocess.Popen(
-        ["uv", "run", "python", "src/web.py"],
+        ["uv", "run", "python", "-m", "src.web"],
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
     )
     with open(PID_FILE, "w") as f:

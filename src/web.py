@@ -139,6 +139,28 @@ async def get_project_commits(project_id: int):
         """, (project_id,))
         return [dict(row) for row in cursor.fetchall()]
 
+@app.get("/api/telemetry")
+async def get_telemetry():
+    if not os.path.exists(DB_PATH):
+        return []
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if not table_exists(cursor, "telemetry"):
+            return []
+        
+        # Aggregate by hour and tool
+        cursor.execute("""
+            SELECT strftime('%Y-%m-%d %H:00', timestamp) as time_bucket,
+                   tool_name,
+                   COUNT(*) as calls,
+                   AVG(latency_ms) as avg_latency,
+                   SUM(tokens_saved) as total_tokens
+            FROM telemetry
+            GROUP BY time_bucket, tool_name
+            ORDER BY time_bucket ASC
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+
 @app.get("/api/graph")
 async def get_graph(project_id: int | None = None):
     if not os.path.exists(DB_PATH):

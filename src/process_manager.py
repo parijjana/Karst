@@ -2,7 +2,12 @@ import asyncio
 import os
 
 ALLOWED_SCRIPTS = {
-    "watchdog": ["uv", "run", "python", "-m", "scripts.watchdog"]
+    "watchdog": ["uv", "run", "python", "-m", "scripts.watchdog"],
+    "reindexer": ["uv", "run", "python", "-m", "scripts.reindexer"],
+    "git_poller": ["uv", "run", "python", "-m", "scripts.git_poller"],
+    "db_optimizer": ["uv", "run", "python", "-m", "scripts.db_optimizer"],
+    "vuln_scanner": ["uv", "run", "python", "-m", "scripts.vuln_scanner"],
+    "embedder": ["uv", "run", "python", "-m", "scripts.embedder"]
 }
 
 # In-memory registry of running tasks (script_name -> subprocess object)
