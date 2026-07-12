@@ -12,6 +12,8 @@ dependencies = [
     "tree-sitter-typescript",
     "tree-sitter-dart>=0.1.0",
     "tree-sitter-markdown>=0.5.1",
+    "fastapi",
+    "uvicorn",
 ]
 
 [tool.uv]
