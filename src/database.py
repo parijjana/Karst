@@ -187,7 +187,7 @@ class Database:
         cursor.execute('DELETE FROM projects WHERE id = ?', (project_id,))
         self.conn.commit()
 
-    def log_telemetry(self, project_id: int, tool_name: str, latency_ms: float, tokens_saved: int = 0, details: Optional[str] = None) -> int:
+    def log_telemetry(self, project_id: Optional[int], tool_name: str, latency_ms: float, tokens_saved: int = 0, details: Optional[str] = None) -> int:
         """Log a telemetry event."""
         cursor = self.conn.cursor()
         cursor.execute('''

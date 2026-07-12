@@ -44,8 +44,9 @@ def main() -> None:
                     parser.parse_file(db, project_id, file_path)
                     count += 1
                     
+        import json
         latency_ms = (time.time() - start_time) * 1000
-        db.log_telemetry(project_id, "reindexer", latency_ms, tokens_saved)
+        db.log_telemetry(project_id, "service:reindexer", latency_ms, count, json.dumps({"bytes_processed": tokens_saved * 4}))
         
     db.close()
 

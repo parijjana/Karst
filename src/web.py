@@ -161,6 +161,24 @@ async def get_telemetry():
         """)
         return [dict(row) for row in cursor.fetchall()]
 
+@app.get("/api/services/metrics")
+async def get_service_metrics():
+    if not os.path.exists(DB_PATH):
+        return []
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if not table_exists(cursor, "telemetry"):
+            return []
+        
+        cursor.execute("""
+            SELECT id, tool_name as service, latency_ms, tokens_saved as processed_count, details, timestamp
+            FROM telemetry
+            WHERE tool_name LIKE 'service:%'
+            ORDER BY timestamp DESC
+            LIMIT 100
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+
 @app.get("/api/graph")
 async def get_graph(project_id: int | None = None):
     if not os.path.exists(DB_PATH):

@@ -297,6 +297,9 @@
                         <canvas id="tokensChart" style="max-height: 250px;"></canvas>
                     </div>
                 </div>
+                <div id="service-metrics-table" style="margin-top: 30px; background:var(--panel-bg); padding:15px; border-radius:8px; border:1px solid var(--border-color);">
+                    <!-- Service metrics table will be injected here -->
+                </div>
             </div>
         </div>
     </div>
@@ -660,9 +663,33 @@
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        plugins: { title: { display: true, text: 'Tokens Saved', color: '#E2E8F0' } }
+                        plugins: { title: { display: true, text: 'Throughput (Tokens/Records Processed)', color: '#E2E8F0' } }
                     }
                 });
+
+                // Fetch detailed service metrics
+                const serviceData = await fetchJSON('/api/services/metrics');
+                if (serviceData && serviceData.length > 0) {
+                    let html = '<table style="margin-top: 20px; width: 100%; border-collapse: collapse;"><tr>';
+                    html += '<th>TIMESTAMP</th><th>SERVICE</th><th>LATENCY (MS)</th><th>PROCESSED</th><th>DETAILS</th></tr>';
+                    serviceData.forEach(row => {
+                        let details = row.details || '';
+                        try {
+                            const parsed = JSON.parse(row.details);
+                            details = Object.entries(parsed).map(([k,v]) => `${k}: ${v}`).join(', ');
+                        } catch(e) {}
+                        
+                        html += `<tr>
+                            <td>${row.timestamp}</td>
+                            <td style="color:var(--accent-cyan);">${row.service.replace('service:', '')}</td>
+                            <td>${Math.round(row.latency_ms)} ms</td>
+                            <td>${row.processed_count}</td>
+                            <td style="color:#94A3B8;">${details}</td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                    document.getElementById('service-metrics-table').innerHTML = html;
+                }
 
             } catch(e) {
                 console.error("Failed to load charts:", e);

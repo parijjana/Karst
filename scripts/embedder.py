@@ -59,7 +59,8 @@ def main() -> None:
     model = SentenceTransformer('BAAI/bge-small-en-v1.5')
     print("Model loaded. Starting embedding process...")
     
-
+    import time
+    start_time = time.time()
     for node_id in nodes_to_embed:
         text = get_node_text(db, node_id)
         if not text:
@@ -73,9 +74,8 @@ def main() -> None:
         
         pass
         
-    # Optional: Log telemetry for embedder
-    # Assuming the first node's project_id for simplicity, since it's a batch script, this might be cross-project.
-    # We can skip telemetry here or log it. Let's just log it if we have a project.
+    latency_ms = (time.time() - start_time) * 1000
+    db.log_telemetry(None, "service:embedder", latency_ms, len(nodes_to_embed), json.dumps({}))
     
     db.close()
     print("Embedding complete.")
