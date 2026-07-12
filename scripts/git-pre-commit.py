@@ -7,6 +7,22 @@ from mcp.client.stdio import stdio_client, StdioServerParameters
 from mcp.client.session import ClientSession
 
 async def main():
+    print("Running CI gates...")
+    try:
+        gate_output = subprocess.check_output(
+            ["uv", "run", "python", "scripts/gate.py"],
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        print(gate_output.strip())
+        if "GATE FAIL" in gate_output:
+            print("CI Gates failed! Commit aborted.", file=sys.stderr)
+            sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        print(e.output.strip())
+        print("CI Gates failed! Commit aborted.", file=sys.stderr)
+        sys.exit(1)
+
     try:
         output = subprocess.check_output(["git", "diff", "--cached", "--name-only"], text=True)
     except subprocess.CalledProcessError as e:
