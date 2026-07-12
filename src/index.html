@@ -159,6 +159,17 @@
         </div>
         
         <div class="content">
+            <div class="panel" id="control-panel">
+                <h2>Services</h2>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div><strong style="color:var(--text-color);">FileSystem Watchdog</strong> <span id="watchdog-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
+                    <div>
+                        <button onclick="controlScript('watchdog', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
+                        <button onclick="controlScript('watchdog', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
+                    </div>
+                </div>
+            </div>
+
             <div class="panel" id="projects-panel">
                 <h2>Repositories</h2>
                 <div id="projects-container">Loading...</div>
@@ -297,6 +308,10 @@
 
         async function loadDashboard() {
             try {
+                // Poll script status
+                pollScriptStatus();
+                setInterval(pollScriptStatus, 5000);
+                
                 const stats = await fetchJSON('/api/stats');
                 document.getElementById('stat-projects').innerText = stats.total_projects;
                 document.getElementById('stat-indexed').innerText = stats.total_nodes;
@@ -331,6 +346,7 @@
             document.getElementById('dd-project-name').innerText = name;
             document.getElementById('drill-down-panel').style.display = 'block';
             document.getElementById('projects-panel').style.display = 'none';
+            document.getElementById('control-panel').style.display = 'none';
             showTab('files');
             
             // Update graph to highlight this project
@@ -345,6 +361,7 @@
             currentProjectId = null;
             document.getElementById('drill-down-panel').style.display = 'none';
             document.getElementById('projects-panel').style.display = 'block';
+            document.getElementById('control-panel').style.display = 'block';
             
             try {
                 const gData = await fetchJSON('/api/graph');
@@ -411,6 +428,31 @@
                 contentDiv.innerHTML = html;
             } catch (e) {
                 contentDiv.innerHTML = '<div style="color:red; padding:10px;">Error loading data</div>';
+            }
+        }
+
+        async function controlScript(name, action) {
+            try {
+                await fetch(`/api/admin/scripts/${name}/${action}`, { method: 'POST' });
+                pollScriptStatus();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function pollScriptStatus() {
+            try {
+                const res = await fetchJSON('/api/admin/scripts/watchdog/status');
+                const badge = document.getElementById('watchdog-status');
+                if (res.status === 'running') {
+                    badge.innerHTML = '● Running (PID: ' + res.pid + ')';
+                    badge.style.color = 'var(--node-func)';
+                } else {
+                    badge.innerHTML = '● Stopped';
+                    badge.style.color = '#EF4444';
+                }
+            } catch (e) {
+                console.error(e);
             }
         }
 

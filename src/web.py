@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 import uvicorn
+from src.process_manager import start_script, stop_script, get_script_status
 
 app = FastAPI(title="Code Graph Dashboard")
 
@@ -96,6 +97,27 @@ async def get_project_telemetry(project_id: int):
             return []
         cursor.execute("SELECT id, tool_name, latency_ms, tokens_saved, timestamp FROM telemetry WHERE project_id = ? ORDER BY timestamp DESC LIMIT 500", (project_id,))
         return [dict(row) for row in cursor.fetchall()]
+
+# Secure execution endpoints
+@app.post("/api/admin/scripts/{script_name}/start")
+async def start_script_endpoint(script_name: str):
+    try:
+        res = await start_script(script_name)
+        return res
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.post("/api/admin/scripts/{script_name}/stop")
+async def stop_script_endpoint(script_name: str):
+    try:
+        res = await stop_script(script_name)
+        return res
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.get("/api/admin/scripts/{script_name}/status")
+async def get_script_status_endpoint(script_name: str):
+    return get_script_status(script_name)
 
 @app.get("/api/projects/{project_id}/commits")
 async def get_project_commits(project_id: int):

@@ -33,7 +33,8 @@ def main():
         "G2": [],
         "G3": [],
         "G4": [],
-        "G5": []
+        "G5": [],
+        "G6": []
     }
 
     # G1: ruff and mypy
@@ -71,15 +72,24 @@ def main():
         gate_report["size"]["largest_file"] = sizes[-1]
         gate_report["size"]["p90_file"] = sizes[int(len(sizes)*0.9)]
 
-    # G3: Structural rules
+    # G3: Structural rules & G6: Security Anti-Patterns
     if src_dir.exists():
         for py_file in src_dir.rglob("*.py"):
             try:
                 with open(py_file, "r", encoding="utf-8") as f:
                     content = f.read()
                     for idx, line in enumerate(content.splitlines()):
+                        # G3 checks
                         if re.match(r'^\s*from\s+.*\s+import\s+\*', line) or re.match(r'^\s*import\s+\*', line):
                             failures["G3"].append(f"[G3 import] {py_file.relative_to(cwd)}:{idx+1}: {line.strip()}")
+                            
+                        # G6 checks (Security anti-patterns)
+                        if "shell=True" in line.replace(" ", ""):
+                            failures["G6"].append(f"[G6 security] {py_file.relative_to(cwd)}:{idx+1}: shell=True is forbidden.")
+                        if re.search(r'os\.system\s*\(', line):
+                            failures["G6"].append(f"[G6 security] {py_file.relative_to(cwd)}:{idx+1}: os.system() is forbidden. Use process_manager.")
+                        if re.search(r'os\.popen\s*\(', line):
+                            failures["G6"].append(f"[G6 security] {py_file.relative_to(cwd)}:{idx+1}: os.popen() is forbidden. Use process_manager.")
             except Exception:
                 pass
 
@@ -113,6 +123,8 @@ def main():
     gate_report["struct"]["violations"] = failures["G3"]
     gate_report["analysis"]["violations"] = failures["G1"]
     gate_report["tests"]["failures"] = failures["G4"]
+    # We can stuff G6 violations into analysis or a separate field, but keeping it simple for print out:
+    # If there are any G6 violations, we will flag it in the print block
 
     with open(cwd / "gate_report.json", "w", encoding="utf-8") as f:
         json.dump(gate_report, f, indent=2)
@@ -129,16 +141,17 @@ def main():
     w = gate_report["analysis"]["warnings"]
     size_v = len(failures["G2"])
     struct_v = len(failures["G3"])
+    security_v = len(failures["G6"])
     cov = gate_report["coverage"]["pct"]
 
-    is_pass = (e == 0 and size_v == 0 and struct_v == 0 and gate_report["tests"]["failed"] == 0 and not failures["G4"])
+    is_pass = (e == 0 and size_v == 0 and struct_v == 0 and security_v == 0 and gate_report["tests"]["failed"] == 0 and not failures["G4"])
     
     if is_pass:
-        print(f"GATE PASS  sha={sha}  tests={passed_tests}/{total_tests}  analysis={e}E/{w}W  size={size_v}  struct={struct_v}  cov={cov}%")
+        print(f"GATE PASS  sha={sha}  tests={passed_tests}/{total_tests}  analysis={e}E/{w}W  size={size_v}  struct={struct_v}  sec={security_v}  cov={cov}%")
         sys.exit(0)
     else:
         print(f"GATE FAIL  sha={sha}")
-        for cat in ["G1", "G2", "G3", "G4", "G5"]:
+        for cat in ["G1", "G2", "G3", "G4", "G5", "G6"]:
             cat_fails = failures[cat]
             if not cat_fails:
                 continue
