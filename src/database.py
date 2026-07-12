@@ -79,6 +79,29 @@ class Database:
             )
         ''')
         
+        # Create commits table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS commits (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER,
+                commit_hash TEXT,
+                message TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Create commit files table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS commit_files (
+                id INTEGER PRIMARY KEY,
+                commit_id INTEGER,
+                file_path TEXT,
+                status TEXT,
+                FOREIGN KEY(commit_id) REFERENCES commits(id) ON DELETE CASCADE
+            )
+        ''')
+        
         self.conn.commit()
 
     def add_project(self, name: str, path: str) -> int:
@@ -155,6 +178,23 @@ class Database:
         ''', (project_id, tool_name, latency_ms, tokens_saved))
         self.conn.commit()
         return cursor.lastrowid or 0
+
+    def log_commit(self, project_id: int, commit_hash: str, message: str, files_changed: list[dict]) -> int:
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT INTO commits (project_id, commit_hash, message)
+            VALUES (?, ?, ?)
+        ''', (project_id, commit_hash, message))
+        commit_id = cursor.lastrowid or 0
+        
+        for file_info in files_changed:
+            cursor.execute('''
+                INSERT INTO commit_files (commit_id, file_path, status)
+                VALUES (?, ?, ?)
+            ''', (commit_id, file_info.get("path", ""), file_info.get("status", "modified")))
+            
+        self.conn.commit()
+        return commit_id
 
     def close(self) -> None:
         self.conn.close()

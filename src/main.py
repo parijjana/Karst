@@ -230,5 +230,23 @@ def find_dependents(project_name: str, symbol_name: str) -> str:
     db.close()
     return "\n".join(result)
 
+@mcp.tool()
+def log_commit(project_name: str, commit_hash: str, message: str, files_changed: list[dict]) -> str:
+    """Log a git commit and the files impacted by it."""
+    start_time = time.time()
+    db = get_db()
+    try:
+        project_id = get_project_id(db, project_name)
+    except ValueError as e:
+        db.close()
+        return str(e)
+        
+    db.log_commit(project_id, commit_hash, message, files_changed)
+    
+    latency_ms = (time.time() - start_time) * 1000
+    db.log_telemetry(project_id, "log_commit", latency_ms, 0)
+    db.close()
+    return f"Logged commit {commit_hash} for project '{project_name}'."
+
 if __name__ == "__main__":
     mcp.run()

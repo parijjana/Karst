@@ -75,6 +75,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 <div class="tab active" onclick="showTab('files')">Files</div>
                 <div class="tab" onclick="showTab('nodes')">Nodes</div>
                 <div class="tab" onclick="showTab('telemetry')">Telemetry</div>
+                <div class="tab" onclick="showTab('commits')">Commits</div>
             </div>
             <div id="dd-content"></div>
         </div>
@@ -230,5 +231,25 @@ async def get_project_telemetry(project_id: int):
         cursor.execute("SELECT id, tool_name, latency_ms, tokens_saved, timestamp FROM telemetry WHERE project_id = ? ORDER BY timestamp DESC LIMIT 500", (project_id,))
         return [dict(row) for row in cursor.fetchall()]
 
+@app.get("/api/projects/{project_id}/commits")
+async def get_project_commits(project_id: int):
+    if not os.path.exists(DB_PATH):
+        return []
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if not table_exists(cursor, "commits"):
+            return []
+        # Get commits and group their files
+        cursor.execute("""
+            SELECT c.id, c.commit_hash, c.message, c.timestamp, 
+                   GROUP_CONCAT(cf.status || ':' || cf.file_path, ', ') as files_changed
+            FROM commits c
+            LEFT JOIN commit_files cf ON c.id = cf.commit_id
+            WHERE c.project_id = ?
+            GROUP BY c.id
+            ORDER BY c.timestamp DESC LIMIT 100
+        """, (project_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8081)
