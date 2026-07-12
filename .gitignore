@@ -10,3 +10,5 @@ coverage.json
 gate_report.json
 .pytest_cache/
 .mypy_cache/
+FEATURE_TRACKER.md
+scratch_*.py
