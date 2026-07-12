@@ -1,7 +1,6 @@
 import time
 import os
 import signal
-import sys
 from src.database import Database
 
 def main():

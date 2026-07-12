@@ -1,5 +1,4 @@
 import os
-import sys
 import contextlib
 from src.database import Database
 

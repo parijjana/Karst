@@ -6,6 +6,7 @@ from mcp.server.fastmcp import FastMCP
 
 from src.database import Database
 from src.parser import CodeParser
+from src.git_logic import do_backfill_git_history
 
 # Ensure data directory exists
 data_dir = Path("data")
@@ -19,9 +20,7 @@ def get_db() -> Database:
 
 def get_project_id(db: Database, project_name: str) -> int:
     cursor = db.conn.cursor()
-    cursor.execute("SELECT id FROM projects WHERE name = ?", (project_name,))
-    row = cursor.fetchone()
-    if not row:
+    if not (row := cursor.execute("SELECT id FROM projects WHERE name = ?", (project_name,)).fetchone()):
         raise ValueError(f"Project '{project_name}' not found.")
     return row[0]
 
@@ -34,11 +33,8 @@ def index_project(project_name: str, root_path: str) -> str:
     
     try:
         cursor = db.conn.cursor()
-        cursor.execute("SELECT id FROM projects WHERE name = ?", (project_name,))
-        row = cursor.fetchone()
-        if row:
+        if (row := cursor.execute("SELECT id FROM projects WHERE name = ?", (project_name,)).fetchone()):
             db.clear_project_data(row[0])
-            
         project_id = db.add_project(project_name, root_path)
     except sqlite3.IntegrityError:
         db.close()
@@ -115,10 +111,18 @@ def query_symbol(project_name: str, symbol_name: str) -> str:
     file_row = cursor.fetchone()
     file_path = file_row[0] if file_row else "Unknown file"
     
+    response = f"Symbol '{symbol_name}' ({node['type']}) defined in {file_path} from line {node['start_line']} to {node['end_line']}."
+    
+    try:
+        raw_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        tokens_saved = max(0, int((raw_size / 4) - (len(response) / 4)))
+    except Exception:
+        tokens_saved = 0
+        
     latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "query_symbol", latency_ms, 500)
+    db.log_telemetry(project_id, "query_symbol", latency_ms, tokens_saved)
     db.close()
-    return f"Symbol '{symbol_name}' ({node['type']}) defined in {file_path} from line {node['start_line']} to {node['end_line']}."
+    return response
 
 @mcp.tool()
 def get_file_outline(project_name: str, filepath: str) -> str:
@@ -149,10 +153,18 @@ def get_file_outline(project_name: str, filepath: str) -> str:
     for name, node_type, start, end in nodes:
         result.append(f"- {node_type} {name} (lines {start}-{end})")
         
+    response = "\n".join(result)
+    
+    try:
+        raw_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
+        tokens_saved = max(0, int((raw_size / 4) - (len(response) / 4)))
+    except Exception:
+        tokens_saved = 0
+        
     latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "get_file_outline", latency_ms, 500)
+    db.log_telemetry(project_id, "get_file_outline", latency_ms, tokens_saved)
     db.close()
-    return "\n".join(result)
+    return response
 
 @mcp.tool()
 def find_dependencies(project_name: str, symbol_name: str) -> str:
@@ -187,10 +199,20 @@ def find_dependencies(project_name: str, symbol_name: str) -> str:
     for name, ntype, etype in deps:
         result.append(f"- {name} ({ntype}) [edge: {etype}]")
         
+    response = "\n".join(result)
+    
+    try:
+        cursor.execute("SELECT path FROM files WHERE id = ?", (node["file_id"],))
+        file_path = cursor.fetchone()[0]
+        raw_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        tokens_saved = max(0, int((raw_size / 4) - (len(response) / 4)))
+    except Exception:
+        tokens_saved = 0
+        
     latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "find_dependencies", latency_ms, 500)
+    db.log_telemetry(project_id, "find_dependencies", latency_ms, tokens_saved)
     db.close()
-    return "\n".join(result)
+    return response
 
 @mcp.tool()
 def find_dependents(project_name: str, symbol_name: str) -> str:
@@ -225,10 +247,20 @@ def find_dependents(project_name: str, symbol_name: str) -> str:
     for name, ntype, etype in deps:
         result.append(f"- {name} ({ntype}) [edge: {etype}]")
         
+    response = "\n".join(result)
+    
+    try:
+        cursor.execute("SELECT path FROM files WHERE id = ?", (node["file_id"],))
+        file_path = cursor.fetchone()[0]
+        raw_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        tokens_saved = max(0, int((raw_size / 4) - (len(response) / 4)))
+    except Exception:
+        tokens_saved = 0
+        
     latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "find_dependents", latency_ms, 500)
+    db.log_telemetry(project_id, "find_dependents", latency_ms, tokens_saved)
     db.close()
-    return "\n".join(result)
+    return response
 
 @mcp.tool()
 def log_commit(project_name: str, commit_hash: str, message: str, files_changed: list[dict]) -> str:
@@ -248,5 +280,21 @@ def log_commit(project_name: str, commit_hash: str, message: str, files_changed:
     db.close()
     return f"Logged commit {commit_hash} for project '{project_name}'."
 
+@mcp.tool()
+def backfill_git_history(project_name: str, limit: int = 100) -> str:
+    """Traverse the git history of a project and ingest its commits into the graph."""
+    db = get_db()
+    try:
+        project_id = get_project_id(db, project_name)
+        cursor = db.conn.cursor()
+        cursor.execute("SELECT path FROM projects WHERE id = ?", (project_id,))
+        project_path = cursor.fetchone()[0]
+    except ValueError as e:
+        db.close()
+        return str(e)
+
+    res = do_backfill_git_history(db, project_id, project_name, project_path, limit)
+    db.close()
+    return res
 if __name__ == "__main__":
     mcp.run()

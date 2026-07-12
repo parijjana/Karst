@@ -118,7 +118,7 @@ async def get_project_commits(project_id: int):
         return [dict(row) for row in cursor.fetchall()]
 
 @app.get("/api/graph")
-async def get_graph(project_id: int = None):
+async def get_graph(project_id: int | None = None):
     if not os.path.exists(DB_PATH):
         return {"nodes": [], "links": []}
     
@@ -138,7 +138,8 @@ async def get_graph(project_id: int = None):
         
         # Add project nodes
         for pid, p in projects.items():
-            if project_id and pid != project_id: continue
+            if project_id and pid != project_id:
+                continue
             nodes.append({
                 "id": f"project_{pid}",
                 "name": p['name'],
