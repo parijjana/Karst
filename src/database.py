@@ -74,10 +74,16 @@ class Database:
                 tool_name TEXT,
                 latency_ms REAL,
                 tokens_saved INTEGER,
+                details TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
             )
         ''')
+        # Try to alter telemetry if details column doesn't exist
+        try:
+            cursor.execute('ALTER TABLE telemetry ADD COLUMN details TEXT')
+        except sqlite3.OperationalError:
+            pass
         
         # Create commits table
         cursor.execute('''
@@ -99,6 +105,16 @@ class Database:
                 file_path TEXT,
                 status TEXT,
                 FOREIGN KEY(commit_id) REFERENCES commits(id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Create active_processes table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS active_processes (
+                pid INTEGER PRIMARY KEY,
+                script_name TEXT,
+                last_heartbeat DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_status TEXT
             )
         ''')
         
@@ -170,12 +186,12 @@ class Database:
         cursor.execute('DELETE FROM projects WHERE id = ?', (project_id,))
         self.conn.commit()
 
-    def log_telemetry(self, project_id: int, tool_name: str, latency_ms: float, tokens_saved: int) -> int:
+    def log_telemetry(self, project_id: Optional[int], tool_name: str, latency_ms: float, tokens_saved: int, details: str = None) -> int:
         cursor = self.conn.cursor()
         cursor.execute('''
-            INSERT INTO telemetry (project_id, tool_name, latency_ms, tokens_saved)
-            VALUES (?, ?, ?, ?)
-        ''', (project_id, tool_name, latency_ms, tokens_saved))
+            INSERT INTO telemetry (project_id, tool_name, latency_ms, tokens_saved, details)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (project_id, tool_name, latency_ms, tokens_saved, details))
         self.conn.commit()
         return cursor.lastrowid or 0
 
@@ -193,8 +209,42 @@ class Database:
                 VALUES (?, ?, ?)
             ''', (commit_id, file_info.get("path", ""), file_info.get("status", "modified")))
             
+            
         self.conn.commit()
         return commit_id
+
+    def register_process(self, pid: int, script_name: str, initial_status: str) -> None:
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO active_processes (pid, script_name, last_heartbeat, last_status)
+            VALUES (?, ?, CURRENT_TIMESTAMP, ?)
+        ''', (pid, script_name, initial_status))
+        self.conn.commit()
+
+    def update_process_heartbeat(self, pid: int, status: str) -> None:
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            UPDATE active_processes 
+            SET last_heartbeat = CURRENT_TIMESTAMP, last_status = ? 
+            WHERE pid = ?
+        ''', (status, pid))
+        self.conn.commit()
+
+    def unregister_process(self, pid: int) -> None:
+        cursor = self.conn.cursor()
+        cursor.execute('DELETE FROM active_processes WHERE pid = ?', (pid,))
+        self.conn.commit()
+
+    def get_stale_processes(self, timeout_seconds: int) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT pid, script_name, last_status, 
+                   (julianday('now') - julianday(last_heartbeat)) * 86400.0 AS elapsed_seconds
+            FROM active_processes
+            WHERE elapsed_seconds > ?
+        ''', (timeout_seconds,))
+        rows = cursor.fetchall()
+        return [{"pid": row[0], "script_name": row[1], "last_status": row[2], "elapsed_seconds": row[3]} for row in rows]
 
     def close(self) -> None:
         self.conn.close()
