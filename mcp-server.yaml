@@ -1,6 +1,6 @@
 schema_version: 1
-id: code-graph-server
-name: Code Graph Server
+id: karst
+name: Karst
 version: 0.1.0
 description: Stores a queryable knowledge graph for each project.
 

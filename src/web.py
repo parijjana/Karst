@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 import uvicorn
 from src.process_manager import start_script, stop_script, get_script_status
 
-app = FastAPI(title="Code Graph Dashboard")
+app = FastAPI(title="Karst Dashboard")
 
 DB_PATH = "data/knowledge_graph.db"
 

@@ -1,5 +1,5 @@
 [project]
-name = "code-graph-server"
+name = "karst"
 version = "0.1.0"
 description = "MCP server for code graph analysis"
 readme = "README.md"

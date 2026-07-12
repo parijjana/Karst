@@ -1,4 +1,4 @@
-# Code Graph Server
+# Karst
 
 An MCP server for analyzing code structures using tree-sitter.
 

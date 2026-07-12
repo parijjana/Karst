@@ -14,7 +14,7 @@ data_dir = Path("data")
 data_dir.mkdir(exist_ok=True)
 db_path = str(data_dir / "knowledge_graph.db")
 
-mcp = FastMCP("Code Graph Server")
+mcp = FastMCP("Karst")
 
 def get_db() -> Database:
     return Database(db_path)
