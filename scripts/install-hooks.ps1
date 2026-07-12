@@ -1,7 +1,7 @@
 $hookScript = @"
 #!/bin/bash
 # Pre-commit hook to update code graph
-python scripts/git-pre-commit.py
+uv run python scripts/git-pre-commit.py
 "@
 
 $hookPath = ".git/hooks/pre-commit"
@@ -12,7 +12,7 @@ Write-Host "Pre-commit hook installed at $hookPath"
 $postHookScript = @"
 #!/bin/bash
 # Post-commit hook to log commits to code graph
-python scripts/git-post-commit.py
+uv run python scripts/git-post-commit.py
 "@
 
 $postHookPath = ".git/hooks/post-commit"

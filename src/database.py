@@ -1,3 +1,4 @@
+# This is a dummy commit to test the pre-commit hook
 import sqlite3
 from typing import List, Optional, Dict, Any
 
