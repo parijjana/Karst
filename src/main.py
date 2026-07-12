@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import time
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
@@ -27,6 +28,7 @@ def get_project_id(db: Database, project_name: str) -> int:
 @mcp.tool()
 def index_project(project_name: str, root_path: str) -> str:
     """Initialize a Database connection, walk root_path for code files, and index them."""
+    start_time = time.time()
     db = get_db()
     parser = CodeParser()
     
@@ -57,12 +59,15 @@ def index_project(project_name: str, root_path: str) -> str:
                 parser.parse_file(db, project_id, file_path)
                 count += 1
                 
+    latency_ms = (time.time() - start_time) * 1000
+    db.log_telemetry(project_id, "index_project", latency_ms, 0)
     db.close()
     return f"Indexed {count} files for project '{project_name}'."
 
 @mcp.tool()
 def update_graph(project_name: str, filepaths: list[str]) -> str:
     """Parse only the specified files and update their nodes in the DB."""
+    start_time = time.time()
     db = get_db()
     parser = CodeParser()
     
@@ -84,12 +89,15 @@ def update_graph(project_name: str, filepaths: list[str]) -> str:
         parser.parse_file(db, project_id, filepath)
         count += 1
         
+    latency_ms = (time.time() - start_time) * 1000
+    db.log_telemetry(project_id, "update_graph", latency_ms, 0)
     db.close()
     return f"Updated {count} files for project '{project_name}'."
 
 @mcp.tool()
 def query_symbol(project_name: str, symbol_name: str) -> str:
     """Return definitions (file and line numbers) of a symbol."""
+    start_time = time.time()
     db = get_db()
     try:
         project_id = get_project_id(db, project_name)
@@ -107,12 +115,15 @@ def query_symbol(project_name: str, symbol_name: str) -> str:
     file_row = cursor.fetchone()
     file_path = file_row[0] if file_row else "Unknown file"
     
+    latency_ms = (time.time() - start_time) * 1000
+    db.log_telemetry(project_id, "query_symbol", latency_ms, 500)
     db.close()
     return f"Symbol '{symbol_name}' ({node['type']}) defined in {file_path} from line {node['start_line']} to {node['end_line']}."
 
 @mcp.tool()
 def get_file_outline(project_name: str, filepath: str) -> str:
     """Return all classes/functions defined in a given file."""
+    start_time = time.time()
     db = get_db()
     try:
         project_id = get_project_id(db, project_name)
@@ -129,20 +140,24 @@ def get_file_outline(project_name: str, filepath: str) -> str:
         
     cursor.execute("SELECT name, type, start_line, end_line FROM nodes WHERE file_id = ? AND (type = 'class' OR type = 'function')", (file_row[0],))
     nodes = cursor.fetchall()
-    db.close()
     
     if not nodes:
+        db.close()
         return f"No classes or functions found in '{filepath}'."
         
     result = [f"Outline for {filepath}:"]
     for name, node_type, start, end in nodes:
         result.append(f"- {node_type} {name} (lines {start}-{end})")
         
+    latency_ms = (time.time() - start_time) * 1000
+    db.log_telemetry(project_id, "get_file_outline", latency_ms, 500)
+    db.close()
     return "\n".join(result)
 
 @mcp.tool()
 def find_dependencies(project_name: str, symbol_name: str) -> str:
     """Return dependencies (edges where this symbol is source)."""
+    start_time = time.time()
     db = get_db()
     try:
         project_id = get_project_id(db, project_name)
@@ -163,19 +178,24 @@ def find_dependencies(project_name: str, symbol_name: str) -> str:
         WHERE e.source_id = ?
     ''', (node["id"],))
     deps = cursor.fetchall()
-    db.close()
     
     if not deps:
+        db.close()
         return f"No dependencies found for '{symbol_name}'."
         
     result = [f"Dependencies for '{symbol_name}':"]
     for name, ntype, etype in deps:
         result.append(f"- {name} ({ntype}) [edge: {etype}]")
+        
+    latency_ms = (time.time() - start_time) * 1000
+    db.log_telemetry(project_id, "find_dependencies", latency_ms, 500)
+    db.close()
     return "\n".join(result)
 
 @mcp.tool()
 def find_dependents(project_name: str, symbol_name: str) -> str:
     """Return dependents (edges where this symbol is target)."""
+    start_time = time.time()
     db = get_db()
     try:
         project_id = get_project_id(db, project_name)
@@ -196,14 +216,18 @@ def find_dependents(project_name: str, symbol_name: str) -> str:
         WHERE e.target_id = ?
     ''', (node["id"],))
     deps = cursor.fetchall()
-    db.close()
     
     if not deps:
+        db.close()
         return f"No dependents found for '{symbol_name}'."
         
     result = [f"Dependents for '{symbol_name}':"]
     for name, ntype, etype in deps:
         result.append(f"- {name} ({ntype}) [edge: {etype}]")
+        
+    latency_ms = (time.time() - start_time) * 1000
+    db.log_telemetry(project_id, "find_dependents", latency_ms, 500)
+    db.close()
     return "\n".join(result)
 
 if __name__ == "__main__":

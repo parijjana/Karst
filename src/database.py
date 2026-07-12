@@ -4,7 +4,12 @@ from typing import List, Optional, Dict, Any
 class Database:
     def __init__(self, db_path: str = ":memory:") -> None:
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
+        self.conn.row_factory = sqlite3.Row
+        
+        # Enable Write-Ahead Logging (WAL) for high-concurrency multi-agent access
+        self.conn.execute("PRAGMA journal_mode=WAL;")
+        self.conn.execute("PRAGMA synchronous=NORMAL;")
         # Enable foreign keys
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.init_db()
@@ -58,6 +63,19 @@ class Database:
                 FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
                 FOREIGN KEY(source_id) REFERENCES nodes(id) ON DELETE CASCADE,
                 FOREIGN KEY(target_id) REFERENCES nodes(id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Create telemetry table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS telemetry (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER,
+                tool_name TEXT,
+                latency_ms REAL,
+                tokens_saved INTEGER,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
             )
         ''')
         
@@ -128,6 +146,15 @@ class Database:
         cursor = self.conn.cursor()
         cursor.execute('DELETE FROM projects WHERE id = ?', (project_id,))
         self.conn.commit()
+
+    def log_telemetry(self, project_id: int, tool_name: str, latency_ms: float, tokens_saved: int) -> int:
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT INTO telemetry (project_id, tool_name, latency_ms, tokens_saved)
+            VALUES (?, ?, ?, ?)
+        ''', (project_id, tool_name, latency_ms, tokens_saved))
+        self.conn.commit()
+        return cursor.lastrowid or 0
 
     def close(self) -> None:
         self.conn.close()
