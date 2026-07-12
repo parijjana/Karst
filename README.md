@@ -82,3 +82,4 @@ Agents connecting to Karst have access to the following tools:
 *   `get_file_outline(project_name, filepath)`
 *   `find_dependencies(project_name, symbol_name)`
 *   `find_dependents(project_name, symbol_name)`
+*   `semantic_search(project_name, query, limit)` - Execute vector similarity search on the codebase leveraging `BAAI/bge-small-en-v1.5` embeddings.

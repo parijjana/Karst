@@ -8,6 +8,7 @@ from src.database import Database
 from src.parser import CodeParser
 from src.git_logic import do_backfill_git_history
 from src.query_logic import do_find_deps
+from src.query_logic import do_semantic_search
 
 # Ensure data directory exists
 data_dir = Path("data")
@@ -241,5 +242,23 @@ def backfill_git_history(project_name: str, limit: int = 100) -> str:
     res = do_backfill_git_history(db, project_id, project_name, project_path, limit)
     db.close()
     return res
+
+
+@mcp.tool()
+def semantic_search(project_name: str, query: str, limit: int = 5) -> str:
+    """Perform a semantic search over the codebase using vector embeddings."""
+    db = get_db()
+    try:
+        project_id = get_project_id(db, project_name)
+    except ValueError as e:
+        db.close()
+        return str(e)
+        
+    response, lat_s, tokens = do_semantic_search(db, project_id, query, limit)
+    db.log_telemetry(project_id, "semantic_search", lat_s * 1000, tokens)
+    db.close()
+    
+    return response
+
 if __name__ == "__main__":
     mcp.run()
