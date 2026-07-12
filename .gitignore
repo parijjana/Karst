@@ -4,3 +4,9 @@ logs/
 .uv-cache/
 .ruff_cache/
 __pycache__/
+.coverage
+.report.json
+coverage.json
+gate_report.json
+.pytest_cache/
+.mypy_cache/
