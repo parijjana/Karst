@@ -31,6 +31,9 @@ async def main():
             files_changed.append({"path": filepath, "status": status})
             
     project_name = Path.cwd().name
+    aliases = {"mcp-hub": "MCePtion", "global-icebox": "Concinnity"}
+    project_name = aliases.get(project_name, project_name)
+    
     print(f"Logging commit {commit_hash} for project: {project_name}")
     
     server_params = StdioServerParameters(

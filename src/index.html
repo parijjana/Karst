@@ -198,6 +198,7 @@
     <script>
         let currentProjectId = null;
         let graphInstance = null;
+        let projectsMap = {}; // Maps project ID -> Project Name
 
         async function fetchJSON(url) {
             const res = await fetch(url);
@@ -236,6 +237,14 @@
                     // Center on node
                     graphInstance.centerAt(node.x, node.y, 1000);
                     graphInstance.zoom(8, 2000);
+                    
+                    // Select project on left panel if we click on a cluster
+                    if (node.group !== undefined && node.group !== null && currentProjectId !== node.group) {
+                        const pName = projectsMap[node.group];
+                        if (pName) {
+                            loadProject(node.group, pName);
+                        }
+                    }
                 })
                 .onBackgroundClick(() => {
                     graphInstance.zoomToFit(400, 50);
@@ -302,6 +311,7 @@
                 const projects = await fetchJSON('/api/projects');
                 let pHtml = '<table><tr><th>Name</th><th>Path</th></tr>';
                 projects.forEach(p => {
+                    projectsMap[p.id] = p.name;
                     pHtml += `<tr onclick="loadProject(${p.id}, '${p.name}')" class="clickable">
                                 <td style="font-weight:bold;color:var(--accent-cyan);">${p.name}</td>
                                 <td style="color:#94A3B8;">${p.path.split('/').pop()}</td>

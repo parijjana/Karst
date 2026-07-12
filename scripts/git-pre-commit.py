@@ -46,6 +46,9 @@ async def main():
         return
         
     project_name = Path.cwd().name
+    aliases = {"mcp-hub": "MCePtion", "global-icebox": "Concinnity"}
+    project_name = aliases.get(project_name, project_name)
+    
     print(f"Updating graph for project: {project_name}")
     print(f"Files to update: {len(modified_files)}")
     
