@@ -2,7 +2,7 @@ import asyncio
 import os
 
 ALLOWED_SCRIPTS = {
-    "watchdog": ["uv", "run", "python", "scripts/watchdog.py"]
+    "watchdog": ["uv", "run", "python", "-m", "scripts.watchdog"]
 }
 
 # In-memory registry of running tasks (script_name -> subprocess object)
