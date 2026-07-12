@@ -132,14 +132,68 @@ async def get_graph(project_id: int = None):
         where_clause = "WHERE project_id = ?" if project_id else ""
         params = (project_id,) if project_id else ()
         
-        # 1. Fetch files as nodes
-        cursor.execute(f"SELECT id, path, project_id FROM files {where_clause}", params)
-        for row in cursor.fetchall():
+        # Fetch projects to get base paths
+        cursor.execute("SELECT id, name, path FROM projects")
+        projects = {row['id']: {"name": row['name'], "path": row['path']} for row in cursor.fetchall()}
+        
+        # Add project nodes
+        for pid, p in projects.items():
+            if project_id and pid != project_id: continue
             nodes.append({
-                "id": f"file_{row['id']}",
-                "name": row['path'].split('/')[-1],
+                "id": f"project_{pid}",
+                "name": p['name'],
+                "type": "project",
+                "group": pid
+            })
+        
+        # 1. Fetch files as nodes, and construct folder nodes
+        cursor.execute(f"SELECT id, path, project_id FROM files {where_clause}", params)
+        added_folders = set()
+        
+        for row in cursor.fetchall():
+            pid = row['project_id']
+            abs_path = row['path']
+            base_path = projects[pid]['path']
+            
+            # Normalize paths to use forward slashes for splitting
+            rel_path = abs_path.replace(base_path, "").strip("\\/")
+            rel_path = rel_path.replace("\\", "/")
+            
+            parts = rel_path.split("/")
+            filename = parts.pop()
+            
+            # Add folders and link them up hierarchically
+            current_parent = f"project_{pid}"
+            current_path = ""
+            for folder in parts:
+                current_path += f"/{folder}"
+                folder_id = f"folder_{pid}_{current_path}"
+                
+                if folder_id not in added_folders:
+                    nodes.append({
+                        "id": folder_id,
+                        "name": folder,
+                        "type": "folder",
+                        "group": pid
+                    })
+                    links.append({
+                        "source": folder_id,
+                        "target": current_parent
+                    })
+                    added_folders.add(folder_id)
+                current_parent = folder_id
+                
+            # Add file node
+            file_id = f"file_{row['id']}"
+            nodes.append({
+                "id": file_id,
+                "name": filename,
                 "type": "file",
-                "group": row['project_id']
+                "group": pid
+            })
+            links.append({
+                "source": file_id,
+                "target": current_parent
             })
             
         # 2. Fetch AST nodes
@@ -168,4 +222,4 @@ async def get_graph(project_id: int = None):
         return {"nodes": nodes, "links": links}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8082)
+    uvicorn.run(app, host="0.0.0.0", port=8084)

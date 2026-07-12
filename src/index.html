@@ -31,15 +31,27 @@
         /* Left Panel Styles */
         #left-panel {
             width: 450px;
-            min-width: 400px;
+            min-width: 300px;
+            max-width: 800px;
+            flex-shrink: 0;
             height: 100%;
             overflow-y: auto;
-            border-right: 1px solid var(--border-color);
             background-color: rgba(15, 23, 42, 0.95);
             z-index: 10;
-            box-shadow: 4px 0 15px rgba(0,0,0,0.5);
             display: flex;
             flex-direction: column;
+        }
+        
+        #resizer {
+            width: 8px;
+            height: 100%;
+            background-color: var(--border-color);
+            cursor: col-resize;
+            z-index: 20;
+            transition: background-color 0.2s;
+        }
+        #resizer:hover, #resizer.active {
+            background-color: var(--accent-cyan);
         }
         
         .header {
@@ -153,7 +165,10 @@
             </div>
 
             <div class="panel" id="drill-down-panel" style="display: none;">
-                <h2><span id="dd-project-name" style="color: var(--text-color);"></span></h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 10px;">
+                    <h2 style="margin:0; border:none; padding:0;"><span id="dd-project-name" style="color: var(--text-color);"></span></h2>
+                    <button onclick="resetView()" style="background:var(--accent-cyan); color:var(--bg-color); border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">&larr; View All</button>
+                </div>
                 <div class="tabs">
                     <div class="tab active" onclick="showTab('files')">Files</div>
                     <div class="tab" onclick="showTab('nodes')">Nodes</div>
@@ -164,9 +179,12 @@
             </div>
         </div>
     </div>
+    
+    <div id="resizer"></div>
 
     <div id="graph-container">
         <div class="legend">
+            <div class="legend-item"><div class="dot" style="background: var(--accent-violet);"></div> Folders</div>
             <div class="legend-item"><div class="dot" style="background: var(--node-file);"></div> Files</div>
             <div class="legend-item"><div class="dot" style="background: var(--node-class);"></div> Classes</div>
             <div class="legend-item"><div class="dot" style="background: var(--node-func);"></div> Functions</div>
@@ -193,12 +211,16 @@
                 .nodeId('id')
                 .nodeLabel('name')
                 .nodeColor(node => {
+                    if (node.type === 'project') return '#EF4444';
+                    if (node.type === 'folder') return '#8B5CF6';
                     if (node.type === 'file') return '#3B82F6';
                     if (node.type === 'class') return '#F59E0B';
                     if (node.type === 'function') return '#10B981';
                     return '#94A3B8';
                 })
                 .nodeVal(node => {
+                    if (node.type === 'project') return 10;
+                    if (node.type === 'folder') return 7;
                     if (node.type === 'file') return 5;
                     if (node.type === 'class') return 3;
                     return 1;
@@ -226,11 +248,15 @@
                 console.error("Failed to load graph", e);
             }
 
-            // Handle window resize
-            window.addEventListener('resize', () => {
-                graphInstance.width(elem.clientWidth);
-                graphInstance.height(elem.clientHeight);
+            // Handle window resize via ResizeObserver
+            const ro = new ResizeObserver(entries => {
+                if(graphInstance && entries.length > 0) {
+                    const { width, height } = entries[0].contentRect;
+                    graphInstance.width(width);
+                    graphInstance.height(height);
+                }
             });
+            ro.observe(elem);
         }
 
         async function loadDashboard() {
@@ -267,11 +293,24 @@
             currentProjectId = id;
             document.getElementById('dd-project-name').innerText = name;
             document.getElementById('drill-down-panel').style.display = 'block';
+            document.getElementById('projects-panel').style.display = 'none';
             showTab('files');
             
             // Update graph to highlight this project
             try {
                 const gData = await fetchJSON(`/api/graph?project_id=${id}`);
+                graphInstance.graphData(gData);
+                setTimeout(() => graphInstance.zoomToFit(400, 50), 500);
+            } catch(e) {}
+        }
+        
+        async function resetView() {
+            currentProjectId = null;
+            document.getElementById('drill-down-panel').style.display = 'none';
+            document.getElementById('projects-panel').style.display = 'block';
+            
+            try {
+                const gData = await fetchJSON('/api/graph');
                 graphInstance.graphData(gData);
                 setTimeout(() => graphInstance.zoomToFit(400, 50), 500);
             } catch(e) {}
@@ -319,6 +358,37 @@
                 contentDiv.innerHTML = '<div style="color:red; padding:10px;">Error loading data</div>';
             }
         }
+
+        // Resizer Logic
+        const resizer = document.getElementById('resizer');
+        const leftPanel = document.getElementById('left-panel');
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            resizer.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            // Disable graph interaction during resize
+            document.getElementById('graph-container').style.pointerEvents = 'none';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const newWidth = e.clientX;
+            // Respect min/max bounds
+            if (newWidth >= 300 && newWidth <= 800) {
+                leftPanel.style.width = `${newWidth}px`;
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                resizer.classList.remove('active');
+                document.body.style.cursor = 'default';
+                document.getElementById('graph-container').style.pointerEvents = 'auto';
+            }
+        });
 
         window.onload = loadDashboard;
     </script>
