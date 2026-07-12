@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Graph Knowledge Base</title>
+    <script src="//unpkg.com/force-graph"></script>
+    <style>
+        :root {
+            --bg-color: #0F172A;
+            --panel-bg: #1E293B;
+            --text-color: #E2E8F0;
+            --accent-cyan: #06B6D4;
+            --accent-violet: #8B5CF6;
+            --border-color: #334155;
+            --node-class: #F59E0B;
+            --node-func: #10B981;
+            --node-file: #3B82F6;
+        }
+        body { 
+            background-color: var(--bg-color); 
+            color: var(--text-color); 
+            font-family: 'Inter', -apple-system, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        /* Left Panel Styles */
+        #left-panel {
+            width: 450px;
+            min-width: 400px;
+            height: 100%;
+            overflow-y: auto;
+            border-right: 1px solid var(--border-color);
+            background-color: rgba(15, 23, 42, 0.95);
+            z-index: 10;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            background: linear-gradient(180deg, rgba(30, 41, 59, 1) 0%, rgba(15, 23, 42, 1) 100%);
+        }
+        
+        .header h1 {
+            margin: 0 0 15px 0;
+            color: var(--accent-cyan);
+            font-size: 1.5em;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .stat-card { 
+            background-color: rgba(30, 41, 59, 0.5); 
+            border: 1px solid var(--border-color); 
+            border-radius: 6px; 
+            padding: 10px; 
+            text-align: center; 
+            transition: all 0.2s ease;
+        }
+        .stat-card:hover { border-color: var(--accent-violet); background-color: rgba(139, 92, 246, 0.1); }
+        .stat-card h3 { margin: 0 0 5px 0; font-size: 0.8em; color: #94A3B8; text-transform: uppercase;}
+        .stat-card .value { font-size: 1.5em; font-weight: bold; color: var(--text-color); }
+
+        .content { padding: 20px; flex-grow: 1; overflow-y: auto; }
+        
+        .panel { 
+            background-color: rgba(30, 41, 59, 0.3); 
+            border: 1px solid var(--border-color); 
+            border-radius: 8px; 
+            padding: 15px; 
+            margin-bottom: 20px; 
+        }
+        
+        h2 { color: var(--accent-violet); font-size: 1.2em; margin-top: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;}
+        
+        table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { color: #94A3B8; font-weight: 500; }
+        tr:hover { background-color: rgba(6, 182, 212, 0.05); }
+        
+        .clickable { cursor: pointer; transition: color 0.2s; }
+        .clickable:hover { color: var(--accent-cyan); }
+        
+        .tabs { display: flex; gap: 5px; margin-bottom: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;}
+        .tab { 
+            padding: 6px 12px; 
+            background-color: transparent; 
+            color: #94A3B8; 
+            cursor: pointer; 
+            border-radius: 4px; 
+            font-size: 0.9em;
+            transition: all 0.2s;
+        }
+        .tab:hover { color: var(--text-color); background-color: rgba(255,255,255,0.05); }
+        .tab.active { background-color: var(--accent-cyan); color: var(--bg-color); font-weight: bold;}
+        
+        /* Right Panel (Graph) */
+        #graph-container {
+            flex-grow: 1;
+            height: 100%;
+            background-color: #0B1120;
+            position: relative;
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            border-radius: 8px;
+            pointer-events: none;
+            backdrop-filter: blur(4px);
+        }
+        .legend-item { display: flex; align-items: center; margin-bottom: 8px; font-size: 0.9em;}
+        .legend-item:last-child { margin-bottom: 0; }
+        .dot { width: 12px; height: 12px; border-radius: 50%; margin-right: 10px; }
+        
+        /* Custom scrollbars */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-color); }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent-violet); }
+    </style>
+</head>
+<body>
+    <div id="left-panel">
+        <div class="header">
+            <h1>Code Graph</h1>
+            <div class="stats-grid">
+                <div class="stat-card"><h3>Projects</h3><div class="value" id="stat-projects">-</div></div>
+                <div class="stat-card"><h3>Nodes</h3><div class="value" id="stat-indexed">-</div></div>
+                <div class="stat-card"><h3>Queries</h3><div class="value" id="stat-queries">-</div></div>
+                <div class="stat-card" title="Calculated tokens saved">
+                    <h3>Saved</h3><div class="value" style="color: var(--accent-cyan);" id="stat-tokens">-</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div class="panel" id="projects-panel">
+                <h2>Repositories</h2>
+                <div id="projects-container">Loading...</div>
+            </div>
+
+            <div class="panel" id="drill-down-panel" style="display: none;">
+                <h2><span id="dd-project-name" style="color: var(--text-color);"></span></h2>
+                <div class="tabs">
+                    <div class="tab active" onclick="showTab('files')">Files</div>
+                    <div class="tab" onclick="showTab('nodes')">Nodes</div>
+                    <div class="tab" onclick="showTab('telemetry')">Telemetry</div>
+                    <div class="tab" onclick="showTab('commits')">Commits</div>
+                </div>
+                <div id="dd-content" style="font-size: 0.85em; overflow-x: auto;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="graph-container">
+        <div class="legend">
+            <div class="legend-item"><div class="dot" style="background: var(--node-file);"></div> Files</div>
+            <div class="legend-item"><div class="dot" style="background: var(--node-class);"></div> Classes</div>
+            <div class="legend-item"><div class="dot" style="background: var(--node-func);"></div> Functions</div>
+            <div class="legend-item" style="margin-top: 10px; font-size: 0.8em; color: #94A3B8;">Scroll to zoom, drag to pan</div>
+        </div>
+    </div>
+
+    <script>
+        let currentProjectId = null;
+        let graphInstance = null;
+
+        async function fetchJSON(url) {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            return await res.json();
+        }
+
+        async function initGraph() {
+            const elem = document.getElementById('graph-container');
+            
+            // Show loading state
+            graphInstance = ForceGraph()(elem)
+                .backgroundColor('#0B1120')
+                .nodeId('id')
+                .nodeLabel('name')
+                .nodeColor(node => {
+                    if (node.type === 'file') return '#3B82F6';
+                    if (node.type === 'class') return '#F59E0B';
+                    if (node.type === 'function') return '#10B981';
+                    return '#94A3B8';
+                })
+                .nodeVal(node => {
+                    if (node.type === 'file') return 5;
+                    if (node.type === 'class') return 3;
+                    return 1;
+                })
+                .linkColor(() => 'rgba(148, 163, 184, 0.2)')
+                .linkWidth(1)
+                .linkDirectionalParticles(2)
+                .linkDirectionalParticleWidth(1.5)
+                .onNodeClick(node => {
+                    // Center on node
+                    graphInstance.centerAt(node.x, node.y, 1000);
+                    graphInstance.zoom(8, 2000);
+                });
+
+            // Fetch global graph data
+            try {
+                const gData = await fetchJSON('/api/graph');
+                graphInstance.graphData(gData);
+                
+                // Fit to canvas after initial layout
+                setTimeout(() => {
+                    graphInstance.zoomToFit(400, 50);
+                }, 1000);
+            } catch(e) {
+                console.error("Failed to load graph", e);
+            }
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                graphInstance.width(elem.clientWidth);
+                graphInstance.height(elem.clientHeight);
+            });
+        }
+
+        async function loadDashboard() {
+            try {
+                const stats = await fetchJSON('/api/stats');
+                document.getElementById('stat-projects').innerText = stats.total_projects;
+                document.getElementById('stat-indexed').innerText = stats.total_nodes;
+                document.getElementById('stat-queries').innerText = stats.queries_served;
+                
+                // Format tokens nicely (e.g. 1.2k)
+                let tokens = stats.tokens_saved;
+                if (tokens > 1000000) tokens = (tokens/1000000).toFixed(1) + 'M';
+                else if (tokens > 1000) tokens = (tokens/1000).toFixed(1) + 'K';
+                document.getElementById('stat-tokens').innerText = tokens;
+
+                const projects = await fetchJSON('/api/projects');
+                let pHtml = '<table><tr><th>Name</th><th>Path</th></tr>';
+                projects.forEach(p => {
+                    pHtml += `<tr onclick="loadProject(${p.id}, '${p.name}')" class="clickable">
+                                <td style="font-weight:bold;color:var(--accent-cyan);">${p.name}</td>
+                                <td style="color:#94A3B8;">${p.path.split('/').pop()}</td>
+                              </tr>`;
+                });
+                pHtml += '</table>';
+                document.getElementById('projects-container').innerHTML = pHtml;
+            } catch (e) {
+                console.error(e);
+            }
+            
+            initGraph();
+        }
+
+        async function loadProject(id, name) {
+            currentProjectId = id;
+            document.getElementById('dd-project-name').innerText = name;
+            document.getElementById('drill-down-panel').style.display = 'block';
+            showTab('files');
+            
+            // Update graph to highlight this project
+            try {
+                const gData = await fetchJSON(`/api/graph?project_id=${id}`);
+                graphInstance.graphData(gData);
+                setTimeout(() => graphInstance.zoomToFit(400, 50), 500);
+            } catch(e) {}
+        }
+
+        async function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            const contentDiv = document.getElementById('dd-content');
+            contentDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#94A3B8;">Loading...</div>';
+
+            try {
+                const data = await fetchJSON(`/api/projects/${currentProjectId}/${tabName}`);
+                let html = '<table><tr>';
+                if (data.length === 0) {
+                    contentDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#94A3B8;">No data available</div>';
+                    return;
+                }
+                
+                // headers
+                Object.keys(data[0]).forEach(k => { 
+                    // Hide some internal IDs for cleaner UI
+                    if(k !== 'id' && k !== 'project_id' && k !== 'file_id') {
+                        html += `<th>${k.replace('_', ' ').toUpperCase()}</th>`; 
+                    }
+                });
+                html += '</tr>';
+                
+                // rows
+                data.forEach(row => {
+                    html += '<tr>';
+                    Object.entries(row).forEach(([k, v]) => { 
+                        if(k !== 'id' && k !== 'project_id' && k !== 'file_id') {
+                            // truncate long text
+                            let text = String(v);
+                            if(text.length > 50) text = text.substring(0, 47) + '...';
+                            html += `<td>${text}</td>`; 
+                        }
+                    });
+                    html += '</tr>';
+                });
+                html += '</table>';
+                contentDiv.innerHTML = html;
+            } catch (e) {
+                contentDiv.innerHTML = '<div style="color:red; padding:10px;">Error loading data</div>';
+            }
+        }
+
+        window.onload = loadDashboard;
+    </script>
+</body>
+</html>
