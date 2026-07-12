@@ -114,12 +114,44 @@
         .tab:hover { color: var(--text-color); background-color: rgba(255,255,255,0.05); }
         .tab.active { background-color: var(--accent-cyan); color: var(--bg-color); font-weight: bold;}
         
-        /* Right Panel (Graph) */
+        /* Right Panel */
+        #right-panel {
+            flex-grow: 1;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            background-color: #0B1120;
+        }
+        
+        #services-panel {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            background-color: var(--panel-bg);
+            height: 35%;
+            overflow-y: auto;
+        }
+
+        #bottom-panel {
+            flex-grow: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            height: 65%;
+        }
+
         #graph-container {
             flex-grow: 1;
             height: 100%;
-            background-color: #0B1120;
             position: relative;
+        }
+        
+        #charts-container {
+            flex-grow: 1;
+            height: 100%;
+            display: none;
+            padding: 20px;
+            overflow-y: auto;
         }
 
         .legend {
@@ -159,16 +191,6 @@
         </div>
         
         <div class="content">
-            <div class="panel" id="control-panel">
-                <h2>Services</h2>
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div><strong style="color:var(--text-color);">FileSystem Watchdog</strong> <span id="watchdog-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
-                    <div>
-                        <button onclick="controlScript('watchdog', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
-                        <button onclick="controlScript('watchdog', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
-                    </div>
-                </div>
-            </div>
 
             <div class="panel" id="projects-panel">
                 <h2>Repositories</h2>
@@ -193,16 +215,43 @@
     
     <div id="resizer"></div>
 
-    <div id="graph-container">
-        <button onclick="if(graphInstance) graphInstance.zoomToFit(400, 50)" style="position:absolute; top:20px; right:20px; z-index:100; background:var(--panel-bg); color:var(--accent-cyan); border:1px solid var(--border-color); padding:8px 12px; border-radius:6px; cursor:pointer; font-family:inherit; font-weight:bold; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-            &#x21BA; Reset Graph View
-        </button>
-        <div class="legend">
-            <div class="legend-item"><div class="dot" style="background: var(--accent-violet);"></div> Folders</div>
-            <div class="legend-item"><div class="dot" style="background: var(--node-file);"></div> Files</div>
-            <div class="legend-item"><div class="dot" style="background: var(--node-class);"></div> Classes</div>
-            <div class="legend-item"><div class="dot" style="background: var(--node-func);"></div> Functions</div>
-            <div class="legend-item" style="margin-top: 10px; font-size: 0.8em; color: #94A3B8;">Scroll to zoom, drag to pan</div>
+    <div id="right-panel">
+        <div id="services-panel">
+            <h2>Scripts & Services</h2>
+            <div class="panel" id="control-panel">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div><strong style="color:var(--text-color);">FileSystem Watchdog</strong> <span id="watchdog-status" style="margin-left:10px; font-weight:bold; color:#94A3B8;">● Unknown</span></div>
+                    <div>
+                        <button onclick="controlScript('watchdog', 'start')" style="background:var(--node-func); color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:5px;">Start</button>
+                        <button onclick="controlScript('watchdog', 'stop')" style="background:#EF4444; color:white; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-weight:bold;">Stop</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="bottom-panel">
+            <div class="tabs" style="margin-bottom:0; padding:10px 20px 0; background:var(--panel-bg); border-bottom:1px solid var(--border-color);">
+                <div class="tab active" id="tab-graph" onclick="showBottomTab('graph')">Knowledge Graph</div>
+                <div class="tab" id="tab-charts" onclick="showBottomTab('charts')">Service Charts</div>
+            </div>
+            
+            <div id="graph-container">
+                <button onclick="if(graphInstance) graphInstance.zoomToFit(400, 50)" style="position:absolute; top:20px; right:20px; z-index:100; background:var(--panel-bg); color:var(--accent-cyan); border:1px solid var(--border-color); padding:8px 12px; border-radius:6px; cursor:pointer; font-family:inherit; font-weight:bold; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                    &#x21BA; Reset Graph View
+                </button>
+                <div class="legend">
+                    <div class="legend-item"><div class="dot" style="background: var(--accent-violet);"></div> Folders</div>
+                    <div class="legend-item"><div class="dot" style="background: var(--node-file);"></div> Files</div>
+                    <div class="legend-item"><div class="dot" style="background: var(--node-class);"></div> Classes</div>
+                    <div class="legend-item"><div class="dot" style="background: var(--node-func);"></div> Functions</div>
+                    <div class="legend-item" style="margin-top: 10px; font-size: 0.8em; color: #94A3B8;">Scroll to zoom, drag to pan</div>
+                </div>
+            </div>
+
+            <div id="charts-container">
+                <h3 style="color:var(--text-color);">Service Metrics</h3>
+                <div style="color:#94A3B8; padding:20px 0;">Metrics and charts will be visualized here once tracking is fully enabled.</div>
+            </div>
         </div>
     </div>
 
@@ -346,7 +395,6 @@
             document.getElementById('dd-project-name').innerText = name;
             document.getElementById('drill-down-panel').style.display = 'block';
             document.getElementById('projects-panel').style.display = 'none';
-            document.getElementById('control-panel').style.display = 'none';
             showTab('files');
             
             // Update graph to highlight this project
@@ -361,7 +409,6 @@
             currentProjectId = null;
             document.getElementById('drill-down-panel').style.display = 'none';
             document.getElementById('projects-panel').style.display = 'block';
-            document.getElementById('control-panel').style.display = 'block';
             
             try {
                 const gData = await fetchJSON('/api/graph');
@@ -453,6 +500,20 @@
                 }
             } catch (e) {
                 console.error(e);
+            }
+        }
+
+        function showBottomTab(tabName) {
+            document.getElementById('tab-graph').classList.remove('active');
+            document.getElementById('tab-charts').classList.remove('active');
+            document.getElementById('tab-' + tabName).classList.add('active');
+            
+            if (tabName === 'graph') {
+                document.getElementById('graph-container').style.display = 'block';
+                document.getElementById('charts-container').style.display = 'none';
+            } else {
+                document.getElementById('graph-container').style.display = 'none';
+                document.getElementById('charts-container').style.display = 'block';
             }
         }
 
