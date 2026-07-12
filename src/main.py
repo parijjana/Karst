@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from src.database import Database
 from src.parser import CodeParser
 from src.git_logic import do_backfill_git_history
+from src.query_logic import do_find_deps
 
 # Ensure data directory exists
 data_dir = Path("data")
@@ -44,6 +45,7 @@ def index_project(project_name: str, root_path: str) -> str:
     # Explicitly ignore common non-hidden build/cache folders
     ignore_dirs = {"node_modules", "build", "dist", "__pycache__", "out", "target"}
     count = 0
+    tokens_saved = 0
     for root, dirs, files in os.walk(root_path):
         # Modify dirs in-place: ignore exact matches and ALL hidden directories (like .git, .venv, .idea)
         dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
@@ -52,11 +54,15 @@ def index_project(project_name: str, root_path: str) -> str:
             ext = Path(file).suffix
             if ext in valid_exts:
                 file_path = os.path.join(root, file)
+                try:
+                    tokens_saved += int(os.path.getsize(file_path) / 4)
+                except Exception:
+                    pass
                 parser.parse_file(db, project_id, file_path)
                 count += 1
                 
     latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "index_project", latency_ms, 0)
+    db.log_telemetry(project_id, "index_project", latency_ms, tokens_saved)
     db.close()
     return f"Indexed {count} files for project '{project_name}'."
 
@@ -75,6 +81,7 @@ def update_graph(project_name: str, filepaths: list[str]) -> str:
         
     cursor = db.conn.cursor()
     count = 0
+    tokens_saved = 0
     for filepath in filepaths:
         cursor.execute("SELECT id FROM files WHERE project_id = ? AND path = ?", (project_id, filepath))
         row = cursor.fetchone()
@@ -82,11 +89,15 @@ def update_graph(project_name: str, filepaths: list[str]) -> str:
             cursor.execute("DELETE FROM files WHERE id = ?", (row[0],))
             db.conn.commit()
             
+        try:
+            tokens_saved += int(os.path.getsize(filepath) / 4)
+        except Exception:
+            pass
         parser.parse_file(db, project_id, filepath)
         count += 1
         
     latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "update_graph", latency_ms, 0)
+    db.log_telemetry(project_id, "update_graph", latency_ms, tokens_saved)
     db.close()
     return f"Updated {count} files for project '{project_name}'."
 
@@ -169,7 +180,6 @@ def get_file_outline(project_name: str, filepath: str) -> str:
 @mcp.tool()
 def find_dependencies(project_name: str, symbol_name: str) -> str:
     """Return dependencies (edges where this symbol is source)."""
-    start_time = time.time()
     db = get_db()
     try:
         project_id = get_project_id(db, project_name)
@@ -177,47 +187,14 @@ def find_dependencies(project_name: str, symbol_name: str) -> str:
         db.close()
         return str(e)
         
-    node = db.get_node_by_name(project_id, symbol_name)
-    if not node:
-        db.close()
-        return f"Symbol '{symbol_name}' not found."
-        
-    cursor = db.conn.cursor()
-    cursor.execute('''
-        SELECT n.name, n.type, e.type
-        FROM edges e
-        JOIN nodes n ON e.target_id = n.id
-        WHERE e.source_id = ?
-    ''', (node["id"],))
-    deps = cursor.fetchall()
-    
-    if not deps:
-        db.close()
-        return f"No dependencies found for '{symbol_name}'."
-        
-    result = [f"Dependencies for '{symbol_name}':"]
-    for name, ntype, etype in deps:
-        result.append(f"- {name} ({ntype}) [edge: {etype}]")
-        
-    response = "\n".join(result)
-    
-    try:
-        cursor.execute("SELECT path FROM files WHERE id = ?", (node["file_id"],))
-        file_path = cursor.fetchone()[0]
-        raw_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-        tokens_saved = max(0, int((raw_size / 4) - (len(response) / 4)))
-    except Exception:
-        tokens_saved = 0
-        
-    latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "find_dependencies", latency_ms, tokens_saved)
+    response, lat_s, tokens = do_find_deps(db, project_id, symbol_name, False)
+    db.log_telemetry(project_id, "find_dependencies", lat_s * 1000, tokens)
     db.close()
     return response
 
 @mcp.tool()
 def find_dependents(project_name: str, symbol_name: str) -> str:
     """Return dependents (edges where this symbol is target)."""
-    start_time = time.time()
     db = get_db()
     try:
         project_id = get_project_id(db, project_name)
@@ -225,40 +202,8 @@ def find_dependents(project_name: str, symbol_name: str) -> str:
         db.close()
         return str(e)
         
-    node = db.get_node_by_name(project_id, symbol_name)
-    if not node:
-        db.close()
-        return f"Symbol '{symbol_name}' not found."
-        
-    cursor = db.conn.cursor()
-    cursor.execute('''
-        SELECT n.name, n.type, e.type
-        FROM edges e
-        JOIN nodes n ON e.source_id = n.id
-        WHERE e.target_id = ?
-    ''', (node["id"],))
-    deps = cursor.fetchall()
-    
-    if not deps:
-        db.close()
-        return f"No dependents found for '{symbol_name}'."
-        
-    result = [f"Dependents for '{symbol_name}':"]
-    for name, ntype, etype in deps:
-        result.append(f"- {name} ({ntype}) [edge: {etype}]")
-        
-    response = "\n".join(result)
-    
-    try:
-        cursor.execute("SELECT path FROM files WHERE id = ?", (node["file_id"],))
-        file_path = cursor.fetchone()[0]
-        raw_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-        tokens_saved = max(0, int((raw_size / 4) - (len(response) / 4)))
-    except Exception:
-        tokens_saved = 0
-        
-    latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "find_dependents", latency_ms, tokens_saved)
+    response, lat_s, tokens = do_find_deps(db, project_id, symbol_name, True)
+    db.log_telemetry(project_id, "find_dependents", lat_s * 1000, tokens)
     db.close()
     return response
 

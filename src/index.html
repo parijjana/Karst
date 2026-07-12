@@ -238,6 +238,27 @@
             // Fetch global graph data
             try {
                 const gData = await fetchJSON('/api/graph');
+                
+                // Grouping projects nearer: Calculate centers for each project
+                const groupKeys = [...new Set(gData.nodes.map(n => n.group))].filter(g => g !== undefined && g !== null);
+                const groups = {};
+                groupKeys.forEach((k, i) => {
+                    const angle = i * 2 * Math.PI / groupKeys.length;
+                    const radius = Math.max(500, groupKeys.length * 150);
+                    groups[k] = { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+                });
+                
+                // Apply a clustering force and increase repulsion
+                graphInstance.d3Force('cluster', (alpha) => {
+                    gData.nodes.forEach(node => {
+                        if (node.group !== undefined && node.group !== null && groups[node.group]) {
+                            node.vx -= (node.x - groups[node.group].x) * alpha * 0.05;
+                            node.vy -= (node.y - groups[node.group].y) * alpha * 0.05;
+                        }
+                    });
+                });
+                graphInstance.d3Force('charge').strength(-80);
+                
                 graphInstance.graphData(gData);
                 
                 // Fit to canvas after initial layout
