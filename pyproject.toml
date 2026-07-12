@@ -1,0 +1,22 @@
+[project]
+name = "code-graph-server"
+version = "0.1.0"
+description = "MCP server for code graph analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp",
+    "tree-sitter",
+    "tree-sitter-python",
+    "tree-sitter-javascript",
+    "tree-sitter-typescript"
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest",
+    "ruff",
+    "mypy",
+    "pytest-cov",
+    "pytest-json-report"
+]

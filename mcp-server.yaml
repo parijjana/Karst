@@ -1,0 +1,11 @@
+name: code-graph-server
+type: command_per_client
+command: uv run python -m src.main
+scripts:
+  start: uv run python -m src.main
+  test: uv run pytest
+health:
+  type: mcp_initialize
+logging:
+  stdout: logs/stdout.log
+  stderr: logs/stderr.log
