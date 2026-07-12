@@ -42,7 +42,7 @@ def index_project(project_name: str, root_path: str) -> str:
         db.close()
         return f"Failed to add project {project_name}"
         
-    valid_exts = {".py", ".js", ".ts", ".dart"}
+    valid_exts = {".py", ".js", ".ts", ".dart", ".md"}
     ignore_dirs = {".git", ".venv", "node_modules", "build", "dist", ".uv-cache", "__pycache__"}
     count = 0
     for root, dirs, files in os.walk(root_path):

@@ -6,6 +6,7 @@ import tree_sitter
 import tree_sitter_python
 import tree_sitter_javascript
 import tree_sitter_typescript
+import tree_sitter_markdown
 
 # Try to import tree_sitter_dart, fallback if it fails
 try:
@@ -25,6 +26,7 @@ class CodeParser:
             ".py": tree_sitter.Language(tree_sitter_python.language()),
             ".js": tree_sitter.Language(tree_sitter_javascript.language()),
             ".ts": tree_sitter.Language(tree_sitter_typescript.language_typescript()),
+            ".md": tree_sitter.Language(tree_sitter_markdown.language()),
         }
         
         if DART_AVAILABLE:
@@ -57,6 +59,10 @@ class CodeParser:
                 (class_definition name: (identifier) @class.name) @class.def
                 (function_signature name: (identifier) @function.name) @function.def
                 (declaration name: (identifier) @variable.name) @variable.def
+            """,
+            ".md": """
+                (atx_heading heading_content: (inline) @heading.name) @heading.def
+                (setext_heading heading_content: (paragraph (inline) @heading.name)) @heading.def
             """
         }
         
@@ -98,8 +104,8 @@ class CodeParser:
                 name_node = None
                 def_node = None
                 
-                # Check for class, function, variable
-                for k in ["class", "function", "variable"]:
+                # Check for class, function, variable, heading
+                for k in ["class", "function", "variable", "heading"]:
                     if f"{k}.name" in match_dict and f"{k}.def" in match_dict:
                         node_type = k
                         # In matches, values are lists of nodes

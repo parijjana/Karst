@@ -1,5 +1,4 @@
 import asyncio
-import sys
 from mcp.client.stdio import stdio_client, StdioServerParameters
 from mcp.client.session import ClientSession
 
