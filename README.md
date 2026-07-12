@@ -50,6 +50,26 @@ We validated the graph's accuracy by hooking it into `git`. A pre-commit hook au
 
 ---
 
+## 🤖 The Agent Workflow (Semantic to Lexical Pipeline)
+
+When an autonomous LLM agent is given a complex task in an unfamiliar codebase, Karst enables a two-step pipeline that mimics senior developer behavior:
+
+### Step 1: The Broad Search (Semantic)
+The agent often doesn't know the exact symbol names (e.g. human developers named a function `do_the_thing()`).
+Instead of failing a strict lexical search, the agent calls:
+`semantic_search(project_name="api", query="JWT validation and token parsing")`
+
+Karst uses local embeddings to return the top **Anchor Nodes**, pointing the agent to the right conceptual neighborhood:
+> *Top match: [0.892] function 'verify_token' at src/auth/jwt_utils.py:12-45*
+
+### Step 2: The Deep Dive (Lexical / Graph)
+Now equipped with exact symbol names and file paths, the agent switches back to deterministic graph traversal.
+It calls `find_dependents(project_name="api", symbol_name="verify_token")` to see exactly which API routes rely on that authentication function.
+
+**Semantic Search acts as the compass**, while the **AST Knowledge Graph acts as the map**.
+
+---
+
 ## 🚀 Usage & Commands
 
 ### Prerequisites
