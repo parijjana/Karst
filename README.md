@@ -1,42 +1,84 @@
 # Karst
 
-Karst is an advanced MCP (Model Context Protocol) server designed to parse, index, and analyze code structures into a unified Knowledge Graph. By leveraging `tree-sitter`, a local SQLite database, and background workers, Karst allows LLMs and developers to rapidly traverse codebases, query definitions, and understand system architectures.
+Karst is an advanced **Model Context Protocol (MCP)** server designed to parse, index, and analyze code structures into a unified Knowledge Graph. 
 
-## Features & Capabilities
+The core mission of Karst is to give LLMs and autonomous agents **deterministic, graph-based access** to large codebases, bridging the gap between raw text processing and deep architectural understanding.
 
-- **Multi-Language Parsing:** Supports AST-based parsing for Python, JavaScript, TypeScript, Dart, and Markdown files.
-- **Knowledge Graph:** Stores projects, files, classes, functions, and relationships (edges) in a local, fast SQLite database (`knowledge_graph.db`).
-- **MCP Tool Integration:** Exposes tools for standard AI agents to query the codebase efficiently:
-  - `index_project`: Recursively index a directory.
-  - `update_graph`: Update the graph for specific modified files.
-  - `query_symbol`: Look up file and line definitions of symbols.
-  - `get_file_outline`: Return an outline of classes and functions in a file.
-  - `find_dependencies` & `find_dependents`: Explore code relationships.
-- **Background Services:** Karst runs a robust suite of background scripts to enhance the graph without blocking the main MCP server:
-  - **FileSystem Watchdog**: Listens for file changes and auto-indexes.
-  - **Deep-Sweep Re-indexer**: Periodically re-evaluates parsed data.
-  - **Git Auto-Poller**: Fetches remote changes dynamically.
-  - **Database Optimizer**: Vacuums and analyzes the database to maintain performance.
-  - **Vulnerability Scanner**: Automatically flags hardcoded shells or os executions.
-  - **Semantic Embedder**: Uses `BAAI/bge-small-en-v1.5` (via `sentence-transformers`) to generate vector embeddings for nodes.
-- **Web UI & Telemetry Dashboard:** A dark cyber-slate dashboard (available via `src/web.py`) provides:
-  - A visual Force-Graph of the parsed code relationships.
-  - Telemetry charts mapping latency and throughput (tokens/records processed) for both MCP tools and background services.
-  - Process controls (Start/Stop) for each background service directly from the browser.
-- **Automated Git Hook Integration**: A `pre-commit` hook setup automatically triggers incremental graph updates on commit.
+---
 
-## Usage
+## 🧠 Why We Built It (Architecture & Rationale)
 
-Start the server using `uv`:
+While basic `grep` or regex-based tools can find strings, they lack semantic awareness of code (e.g., distinguishing a function definition from a string literal). To solve this, Karst was built with the following architectural pillars:
 
-```bash
-uv run python -m src.main
-```
+### 1. Deterministic Parsing (`tree-sitter`)
+Instead of regex heuristics, Karst uses `tree-sitter` bindings for Python, JavaScript, TypeScript, Dart, and Markdown. 
+**Why?** It ensures 100% accuracy in identifying classes, functions, and variables, even in syntactically complex or messy code files.
 
-Start the Web UI & Process Manager:
+### 2. Local Knowledge Graph (SQLite)
+Instead of relying on heavy graph databases (like Neo4j) which complicate deployment, Karst uses a heavily normalized **SQLite** database (`knowledge_graph.db`).
+**Why?** It provides immediate, portable access to relational data (`projects` -> `files` -> `nodes` -> `edges`) with zero setup. We can run complex SQL joins to find dependents and dependencies in milliseconds.
 
-```bash
-uv run python -m src.manage_ui start
-```
+### 3. Asynchronous Background Services
+An MCP server must remain highly responsive. If the server blocks to re-index 10,000 files, the LLM client times out. 
+**Why?** We decoupled heavy lifting into dedicated background services (managed via `src/manage_ui.py`):
+*   **FileSystem Watchdog**: Immediately catches local file modifications and updates the graph without a full re-index.
+*   **Deep-Sweep Re-indexer**: Periodically crawls the codebase to heal any missed changes and prevent "graph rot".
+*   **Git Auto-Poller**: Synchronizes tracked repositories from remote origins every 60 seconds.
+*   **Database Optimizer**: Runs `VACUUM` and `ANALYZE` to reclaim space and optimize query paths.
+*   **Vulnerability Scanner**: Proactively flags dangerous patterns (e.g., `shell=True`, `os.system`) directly in the graph.
+*   **Semantic Embedder**: We integrated `sentence-transformers` running the `BAAI/bge-small-en-v1.5` model. This allows hybrid search (both lexical graph lookups and semantic vector queries).
 
-Access the dashboard at `http://localhost:8080`.
+### 4. Visual Telemetry Dashboard
+Agents are often black boxes. We built a Dark "Cyber-Slate" Web UI (served via `src/web.py` on port 8080).
+**Why?** To provide real-time observability. Developers can visually navigate the Knowledge Graph (via Force-Graph), monitor service health, start/stop background scripts, and view aggregate telemetry (latency, tokens saved, records processed).
+
+---
+
+## 🛡️ How We Validated It (Quality & CI Gates)
+
+Reliability is paramount for an agentic tool. Karst enforces strict quality control through a custom **CI Gate system** (`scripts/gate.py`) and automated git hooks.
+
+Before any code is committed, it must pass a rigorous 5-stage validation pipeline:
+1.  **G1 (Static Analysis):** Enforces strict `ruff` linting and strict `mypy` type-checking. No dynamic or loose typing is permitted.
+2.  **G2 (Size Ratchet):** Prevents monolithic code. We enforce strict line limits (files must be <300 lines). The ratchet ensures technical debt never increases.
+3.  **G3 (Structural Rules):** Prohibits wildcard imports (`from module import *`) to ensure clear dependency graphs.
+4.  **G4 (Hermetic Testing):** Requires `pytest` execution in isolated environments using in-memory SQLite instances to verify the graph schema and parser logic.
+5.  **G5 (Coverage):** Extracts and enforces a minimum test coverage percentage.
+
+**Automated Self-Updating Graph:**
+We validated the graph's accuracy by hooking it into `git`. A pre-commit hook automatically intercepts modified files and triggers an `update_graph` MCP command to Karst, meaning the knowledge graph updates itself exactly when the code changes.
+
+---
+
+## 🚀 Usage & Commands
+
+### Prerequisites
+*   `uv` package manager installed.
+*   Python 3.10+
+
+### Starting the Infrastructure
+
+1.  **Start the Web Dashboard & Process Manager:**
+    ```bash
+    uv run python -m scripts.manage_ui start
+    ```
+    *Access the UI at `http://localhost:8080`*
+
+2.  **Start the MCP Server (for Claude/Agents):**
+    ```bash
+    uv run python -m src.main
+    ```
+
+3.  **Run the Strict CI Validation Gate:**
+    ```bash
+    uv run python scripts/gate.py
+    ```
+
+### Available MCP Tools
+Agents connecting to Karst have access to the following tools:
+*   `index_project(project_name, root_path)`
+*   `update_graph(project_name, filepaths)`
+*   `query_symbol(project_name, symbol_name)`
+*   `get_file_outline(project_name, filepath)`
+*   `find_dependencies(project_name, symbol_name)`
+*   `find_dependents(project_name, symbol_name)`
