@@ -1,6 +1,7 @@
 """Atomic, bounded generation-based indexing orchestration."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -25,11 +26,20 @@ class IncrementalIndexService:
 
     def index(self, project: int | str, root: str | Path, *,
               limits: DiscoveryLimits | None = None,
-              cancel: Callable[[], bool] | None = None) -> IndexResult:
+              cancel: Callable[[], bool] | None = None,
+              extensions: tuple[str, ...] = (".dart",),
+              ignored_directories: tuple[str, ...] = (".git", ".dart_tool", "build")) -> IndexResult:
         try:
             if cancel and cancel():
                 raise SecurityViolation("index_cancelled")
-            discovery = discover_snapshots(root, self.policy, limits=limits, cancelled=cancel)
+            discovery = discover_snapshots(
+                root,
+                self.policy,
+                limits=limits,
+                cancelled=cancel,
+                extensions=extensions,
+                ignored_directories=ignored_directories,
+            )
         except (SecurityViolation, ValueError, OSError) as exc:
             code = str(exc).split(":", 1)[0] or "index_rejected"
             diagnostic = IndexDiagnostic(DiagnosticSeverity.ERROR, _code(code), _code(code))
@@ -40,9 +50,20 @@ class IncrementalIndexService:
             with self.database_factory() as db:
                 repo = GenerationRepository(db)
                 active = repo.active(project)
-                previous = self._manifest(db, active.id) if active else ()
+                # A q0 generation can originate from the legacy mutable writer.
+                # Its file identities are not a trusted manifest for the immutable
+                # generation path, so replace it by parsing the current snapshot.
+                previous = (
+                    self._manifest(db, active.id)
+                    if active is not None and active.query_ready
+                    else ()
+                )
                 plan = build_manifest_plan(current, previous)
-                generation = repo.clone(project) if active else repo.admit(project)
+                generation = (
+                    repo.clone(project)
+                    if active is not None and active.query_ready
+                    else repo.admit(project)
+                )
                 parser = self.parser_factory()
                 by_path = {s.candidate.relative_path: s for s in discovery.snapshots}
                 diagnostics: list[IndexDiagnostic] = [
@@ -102,7 +123,16 @@ class IncrementalIndexService:
                 except Exception:
                     pass
                 status = IndexStatus.CANCELLED if code == "index_cancelled" else IndexStatus.FAILED
-                return IndexResult(status, IndexCounts(failed_files=1, diagnostic_count=1), (diag,), generation.id)
+                return IndexResult(
+                    status,
+                    IndexCounts(
+                        discovered_files=len(current),
+                        failed_files=1,
+                        diagnostic_count=1,
+                    ),
+                    (diag,),
+                    generation.id,
+                )
             return IndexResult(IndexStatus.FAILED, IndexCounts(failed_files=1, diagnostic_count=1), (IndexDiagnostic(DiagnosticSeverity.ERROR, code, code),))
 
     @staticmethod
@@ -129,7 +159,7 @@ class IncrementalIndexService:
 
 
 def _code(value: str) -> str:
-    value = value.strip().lower().replace("-", "_")
+    value = re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
     return value if value and value[0].isalpha() else "index_rejected"
 
 

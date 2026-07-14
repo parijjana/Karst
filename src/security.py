@@ -13,6 +13,17 @@ from src.settings import TRUSTED_LOCAL_OWNER
 _PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 _PROJECT_NAMESPACE = uuid.UUID("c52ddc3b-9252-4e1d-92d4-8d884059067c")
 _REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+_TRANSIENT_GENERATED_DIRECTORY = re.compile(
+    r"(?:"
+    r"(?:idx\d+|parser)-(?:[a-z0-9]+-)*[a-z0-9]+-\d{4,}|"
+    r"kgt-[A-Za-z0-9_.-]+|"
+    r"pytest-basetemp|"
+    r"pytest-[A-Za-z0-9_.-]+|"
+    r"terra-rereview|"
+    r"Programmingcodex\.tmpcode-graph-wave\d+-gate-[A-Za-z0-9TZ.-]+pytest-basetemp|"
+    r"tmp[A-Za-z0-9_]{8,}"
+    r")\Z"
+)
 
 
 class SecurityViolation(ValueError):
@@ -54,6 +65,11 @@ def _is_reparse_point(path: Path) -> bool:
     return stat.S_ISLNK(details.st_mode) or bool(
         getattr(details, "st_file_attributes", 0) & _REPARSE_POINT
     )
+
+
+def _is_transient_generated_directory(name: str) -> bool:
+    """Recognize local test/review artifacts without weakening normal traversal."""
+    return bool(_TRANSIENT_GENERATED_DIRECTORY.fullmatch(name))
 
 
 class PathSecurityPolicy:
@@ -126,7 +142,11 @@ class PathSecurityPolicy:
             current = Path(current_root)
             retained_directories: list[str] = []
             for name in directory_names:
-                if name in ignored_directories or name.startswith("."):
+                if (
+                    name in ignored_directories
+                    or name.startswith(".")
+                    or _is_transient_generated_directory(name)
+                ):
                     continue
                 candidate = current / name
                 if _is_reparse_point(candidate):

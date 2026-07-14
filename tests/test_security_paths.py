@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -91,6 +92,77 @@ def test_discovery_filters_hidden_ignored_and_unsupported_entries(
     discovered = policy.discover_project_files(project, {".py"}, {"build"})
 
     assert discovered == [source]
+
+
+def test_discovery_skips_recognized_transient_generated_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    artifacts = (
+        ".test-tmp-terra-review",
+        ".wave2-app-green-gate-20260713-122125578",
+        ".terra-recovery-tmp",
+        "idx1-review-db-focused-1512",
+        "parser-blockers-final-1456",
+        "kgt-20260714T120000Z",
+        "pytest-basetemp",
+        "pytest-model55",
+        "terra-rereview",
+        "tmpyk_upm9l",
+    )
+
+    def walk_with_transient_artifacts(
+        top: Path,
+        *,
+        topdown: bool,
+        onerror: object,
+        followlinks: bool,
+    ) -> object:
+        assert top == project
+        assert topdown is True
+        assert followlinks is False
+        directories = list(artifacts)
+        yield str(project), directories, []
+        assert directories == []
+
+    monkeypatch.setattr(os, "walk", walk_with_transient_artifacts)
+
+    policy = PathSecurityPolicy((tmp_path,))
+
+    assert policy.discover_project_files(project, {".py"}, set()) == []
+
+
+def test_discovery_fails_closed_for_unknown_unreadable_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    unknown = "generated-but-unrecognized"
+
+    def walk_with_unreadable_unknown(
+        top: Path,
+        *,
+        topdown: bool,
+        onerror: object,
+        followlinks: bool,
+    ) -> object:
+        assert top == project
+        assert topdown is True
+        assert followlinks is False
+        directories = [unknown]
+        yield str(project), directories, []
+        assert directories == [unknown]
+        assert callable(onerror)
+        onerror(PermissionError("access denied"))
+
+    monkeypatch.setattr(os, "walk", walk_with_unreadable_unknown)
+    policy = PathSecurityPolicy((tmp_path,))
+
+    with pytest.raises(SecurityViolation) as error:
+        policy.discover_project_files(project, {".py"}, set())
+
+    assert violation_code(error) == "path_unavailable"
 
 
 def test_registered_project_success_and_public_error_contract(

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from src.database import Database
 from src.database_session import database_session, get_project_id
+from src.index_generation_service import IncrementalIndexService
+from src.index_models import IndexResult
 from src.parser import CodeParser, ParseOutcome, ParseStatus, ParseSummary
 from src.security import (
     PathSecurityPolicy,
@@ -42,7 +44,9 @@ class ProjectIndexService:
         try:
             validate_project_name(project_name)
             root = self._policy.validate_project_root(root_path)
-            files = self._policy.discover_project_files(
+            # Retain the established traversal safety check before any project
+            # registration or generation work can mutate stored graph data.
+            self._policy.discover_project_files(
                 root, set(SUPPORTED_EXTENSIONS), set(IGNORED_DIRECTORIES)
             )
         except SecurityViolation as error:
@@ -56,14 +60,15 @@ class ProjectIndexService:
             except sqlite3.IntegrityError:
                 return "Unable to register project."
 
-            summary, tokens_saved = self._parse_files(database, project_id, files)
+        result = self._generation_index(project_id, root)
+        with database_session(self._database_factory) as database:
             database.log_telemetry(
                 project_id,
                 "index_project",
                 (time.monotonic() - started) * 1000,
-                tokens_saved,
+                0,
             )
-        return self._summary("Indexed", project_name, summary)
+        return self._generation_summary("Indexed", project_name, result)
 
     def update_graph(self, project_name: str, filepaths: list[str]) -> str:
         started = time.monotonic()
@@ -81,29 +86,20 @@ class ProjectIndexService:
                 return "Project not found."
             try:
                 root = validate_registered_project(self._policy, row[0], row[1], row[2])
-                paths = tuple(
-                    dict.fromkeys(
-                        self._policy.validate_project_file(path, root)
-                        for path in filepaths
-                    )
-                )
+                for path in dict.fromkeys(filepaths):
+                    self._policy.validate_project_file(path, root)
             except SecurityViolation as error:
                 return security_error(error)
 
-            for path in paths:
-                database.conn.execute(
-                    "DELETE FROM files WHERE project_id = ? AND path = ?",
-                    (project_id, str(path)),
-                )
-            database.conn.commit()
-            summary, tokens_saved = self._parse_files(database, project_id, paths)
+        result = self._generation_index(project_id, root)
+        with database_session(self._database_factory) as database:
             database.log_telemetry(
                 project_id,
                 "update_graph",
                 (time.monotonic() - started) * 1000,
-                tokens_saved,
+                0,
             )
-        return self._summary("Updated", project_name, summary)
+        return self._generation_summary("Updated", project_name, result)
 
     def _register_project(
         self, database: Database, project_name: str, root: Path
@@ -119,7 +115,7 @@ class ProjectIndexService:
             )
             if stored_root != root:
                 raise SecurityViolation("project_identity_conflict")
-            database.clear_project_data(row[0])
+            return int(row[0])
         return database.add_project(
             project_name,
             str(root),
@@ -145,6 +141,30 @@ class ProjectIndexService:
                 except OSError:
                     pass
         return ParseSummary(tuple(outcomes)), tokens_saved
+
+    def _generation_index(self, project_id: int, root: Path) -> IndexResult:
+        service = IncrementalIndexService(
+            self._database_factory,
+            self._policy,
+            self._parser_factory,
+        )
+        return service.index(
+            project_id,
+            root,
+            extensions=tuple(SUPPORTED_EXTENSIONS),
+            ignored_directories=tuple(IGNORED_DIRECTORIES),
+        )
+
+    @staticmethod
+    def _generation_summary(
+        action: str, project_name: str, result: IndexResult
+    ) -> str:
+        counts = result.counts
+        return (
+            f"{action} {counts.indexed_files} files for project "
+            f"'{project_name}'; skipped {counts.skipped_files}; "
+            f"failed {counts.failed_files}."
+        )
 
     @staticmethod
     def _summary(action: str, project_name: str, summary: ParseSummary) -> str:

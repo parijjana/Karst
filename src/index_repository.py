@@ -162,7 +162,12 @@ class IndexRepository:
             payload = self.database.conn.execute("SELECT stable_id,hash,byte_size FROM files WHERE project_id=? AND generation_id=? ORDER BY relative_path", (pid, generation_id)).fetchall()
             node_ids = self.database.conn.execute("SELECT stable_id,qualified_name,start_line,end_line FROM nodes WHERE project_id=? AND generation_id=? ORDER BY stable_id", (pid,generation_id)).fetchall()
             manifest = hashlib.sha256(json.dumps({"files":[(str(r[0]), str(r[1]), int(r[2])) for r in payload], "nodes":[tuple(r) for r in node_ids], "edges":[tuple(r) for r in edges]}, separators=(",", ":")).encode()).hexdigest()
-            self.database.conn.execute("UPDATE index_generations SET status='superseded',superseded_at=CURRENT_TIMESTAMP,query_ready=0 WHERE project_id=? AND status='active'", (pid,))
+            self.database.conn.execute(
+                "UPDATE index_generations SET status='superseded', "
+                "superseded_at=CURRENT_TIMESTAMP, query_ready=0, "
+                "manifest_sha256=NULL WHERE project_id=? AND status='active'",
+                (pid,),
+            )
             self.database.conn.execute("UPDATE index_generations SET status='active',completed_at=CURRENT_TIMESTAMP,promoted_at=CURRENT_TIMESTAMP,manifest_sha256=?,query_ready=?,discovered_files=?,indexed_files=?,symbol_count=?,edge_count=?,diagnostic_count=? WHERE id=?", (manifest if query_ready else None,int(query_ready),counts,counts,symbols,len(edges),diagnostics,generation_id))
         return Generation(generation_id,pid,ordinal,"active",bool(query_ready))
 

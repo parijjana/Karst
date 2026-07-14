@@ -10,15 +10,7 @@ import json
 from src import main
 from src.database import DatabaseMigrationRecoveryRequired
 from tests.database_v2_generation_support import create_v2_database
-from src.settings import Settings
-
-
-def configured_settings(tmp_path: Path) -> Settings:
-    return Settings(
-        data_dir=tmp_path / "data",
-        db_path=tmp_path / "data" / "karst.db",
-        allowed_roots=(tmp_path,),
-    )
+from tests.main_support import configured_settings, seed_populated_legacy_generation
 
 
 def test_mcp_server_name_and_public_tool_contract() -> None:
@@ -90,6 +82,104 @@ def test_list_symbols_invalid_limit_uses_v1_error(
     assert payload["schema_version"] == "v1"
     assert payload["status"] == "error"
     assert payload["error"]["code"] == "limit_exceeded"
+
+
+def test_mcp_index_and_update_promote_query_ready_generations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    source = project / "module.py"
+    source.write_text("def first_symbol():\n    return 1\n", encoding="utf-8")
+    configuration = configured_settings(tmp_path)
+    monkeypatch.setattr(main, "settings", configuration)
+
+    assert main.index_project("demo", str(project)).startswith("Indexed 1 files")
+    listed = json.loads(main.list_symbols("demo", name="first_symbol"))
+    assert listed["status"] == "success"
+    assert main.query_symbol("demo", "first_symbol").startswith(
+        "Symbol 'first_symbol'"
+    )
+
+    source.write_text("def second_symbol():\n    return 2\n", encoding="utf-8")
+    assert main.update_graph("demo", [str(source)]).startswith("Updated 1 files")
+    updated = json.loads(main.list_symbols("demo", name="second_symbol"))
+    assert updated["status"] == "success"
+    assert main.query_symbol("demo", "second_symbol").startswith(
+        "Symbol 'second_symbol'"
+    )
+
+    with closing(sqlite3.connect(configuration.db_path)) as connection:
+        assert connection.execute(
+            "SELECT query_ready FROM index_generations "
+            "WHERE project_id = 1 AND status = 'active'"
+        ).fetchone()[0] == 1
+
+
+def test_mcp_index_replaces_populated_legacy_nonready_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    contents = b"def legacy_symbol():\n    return 1\n"
+    configuration = configured_settings(tmp_path)
+    monkeypatch.setattr(main, "settings", configuration)
+
+    with main.get_db(configuration) as database:
+        project_id = seed_populated_legacy_generation(
+            database,
+            "legacy",
+            project,
+            {"module.py": (contents, "legacy_symbol")},
+        )
+
+    assert main.index_project("legacy", str(project)).startswith("Indexed 1 files")
+    listed = json.loads(main.list_symbols("legacy", name="legacy_symbol"))
+    assert listed["status"] == "success"
+    assert main.query_symbol("legacy", "legacy_symbol").startswith(
+        "Symbol 'legacy_symbol'"
+    )
+    with closing(sqlite3.connect(configuration.db_path)) as connection:
+        assert connection.execute(
+            "SELECT query_ready FROM index_generations "
+            "WHERE project_id = ? AND status = 'active'",
+            (project_id,),
+        ).fetchone()[0] == 1
+
+
+def test_mcp_index_rebuilds_populated_legacy_nonready_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    sources = {
+        "first.py": b"def first_symbol():\n    return 1\n",
+        "second.py": b"def second_symbol():\n    return 2\n",
+    }
+    configuration = configured_settings(tmp_path)
+    monkeypatch.setattr(main, "settings", configuration)
+
+    with main.get_db(configuration) as database:
+        project_id = seed_populated_legacy_generation(
+            database,
+            "unchanged",
+            project,
+            {
+                name: (contents, f"{Path(name).stem}_symbol")
+                for name, contents in sources.items()
+            },
+        )
+
+    assert main.index_project("unchanged", str(project)).startswith("Indexed 2 files")
+    listed = json.loads(main.list_symbols("unchanged", name="first_symbol"))
+    assert listed["status"] == "success"
+    with closing(sqlite3.connect(configuration.db_path)) as connection:
+        generation = connection.execute(
+            "SELECT query_ready, discovered_files, indexed_files FROM index_generations "
+            "WHERE project_id = ? AND status = 'active'",
+            (project_id,),
+        ).fetchone()
+    assert tuple(generation) == (1, 2, 2)
 
 
 def test_run_uses_injected_transport_runner() -> None:
