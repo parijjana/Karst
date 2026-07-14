@@ -1,6 +1,11 @@
 import pytest
 from typing import Generator
 from src.database import Database
+from src.settings import TRUSTED_LOCAL_OWNER
+
+
+def add_test_project(db: Database, name: str, path: str) -> int:
+    return db.add_project(name, path, TRUSTED_LOCAL_OWNER, f"test:{name}")
 
 @pytest.fixture
 def db() -> Generator[Database, None, None]:
@@ -9,16 +14,21 @@ def db() -> Generator[Database, None, None]:
     database.close()
 
 def test_add_project(db: Database) -> None:
-    project_id = db.add_project("test_project", "/path/to/project")
+    project_id = add_test_project(db, "test_project", "/path/to/project")
     assert project_id > 0
 
+
+def test_add_project_rejects_fake_client_owner(db: Database) -> None:
+    with pytest.raises(ValueError, match="trusted local stdio domain"):
+        db.add_project("test_project", "/path/to/project", "client-a", "stable")
+
 def test_add_file(db: Database) -> None:
-    project_id = db.add_project("test_project", "/path/to/project")
+    project_id = add_test_project(db, "test_project", "/path/to/project")
     file_id = db.add_file(project_id, "test_file.py", "hash123")
     assert file_id > 0
 
 def test_add_node(db: Database) -> None:
-    project_id = db.add_project("test_project", "/path/to/project")
+    project_id = add_test_project(db, "test_project", "/path/to/project")
     file_id = db.add_file(project_id, "test_file.py", "hash123")
     node_id = db.add_node(project_id, file_id, "function", "test_func", 10, 20)
     assert node_id > 0
@@ -31,7 +41,7 @@ def test_add_node(db: Database) -> None:
     assert node["end_line"] == 20
 
 def test_add_edge(db: Database) -> None:
-    project_id = db.add_project("test_project", "/path/to/project")
+    project_id = add_test_project(db, "test_project", "/path/to/project")
     file_id = db.add_file(project_id, "test_file.py", "hash123")
     node1_id = db.add_node(project_id, file_id, "function", "func1", 1, 10)
     node2_id = db.add_node(project_id, file_id, "function", "func2", 11, 20)
@@ -46,7 +56,7 @@ def test_add_edge(db: Database) -> None:
     assert edges[0]["type"] == "calls"
 
 def test_clear_project_data(db: Database) -> None:
-    project_id = db.add_project("test_project", "/path/to/project")
+    project_id = add_test_project(db, "test_project", "/path/to/project")
     file_id = db.add_file(project_id, "test_file.py", "hash123")
     db.add_node(project_id, file_id, "function", "test_func", 10, 20)
     

@@ -1,264 +1,188 @@
-import os
-import sqlite3
-import time
-from pathlib import Path
+from __future__ import annotations
+
+from collections.abc import Callable
+import secrets
+
 from mcp.server.fastmcp import FastMCP
 
 from src.database import Database
-from src.parser import CodeParser
+from src.database_session import get_project_id
 from src.git_logic import do_backfill_git_history
-from src.query_logic import do_find_deps
-from src.query_logic import do_semantic_search
+from src.indexing_service import ProjectIndexService
+from src.parser import CodeParser, ParseStatus, ParseSummary
+from src.query_logic import do_find_deps, do_semantic_search
+from src.query_cursor import SymbolFilters, SymbolPageCursorCodec
+from src.query_service import QueryService
+from src.query_models import ApiError, QueryErrorCode, SymbolPageError
+from src.symbol_repository import SymbolRepository
+from src.settings import Settings, settings
+from src.tool_service import GraphToolService
 
-# Ensure data directory exists
-data_dir = Path("data")
-data_dir.mkdir(exist_ok=True)
-db_path = str(data_dir / "knowledge_graph.db")
 
 mcp = FastMCP("Karst")
+_CURSOR_KEY = secrets.token_bytes(32)
+__all__ = [
+    "CodeParser",
+    "ParseStatus",
+    "ParseSummary",
+    "backfill_git_history",
+    "find_dependencies",
+    "find_dependents",
+    "get_db",
+    "get_file_outline",
+    "get_project_id",
+    "index_project",
+    "log_commit",
+    "mcp",
+    "query_symbol",
+    "rebuild_database",
+    "list_symbols",
+    "semantic_search",
+    "update_graph",
+]
 
-def get_db() -> Database:
-    return Database(db_path)
 
-def get_project_id(db: Database, project_name: str) -> int:
-    cursor = db.conn.cursor()
-    if not (row := cursor.execute("SELECT id FROM projects WHERE name = ?", (project_name,)).fetchone()):
-        raise ValueError(f"Project '{project_name}' not found.")
-    return row[0]
+def get_db(configuration: Settings | None = None) -> Database:
+    active_settings = configuration or settings
+    active_settings.data_dir.mkdir(parents=True, exist_ok=True)
+    return Database(str(active_settings.db_path))
+
+
+def _database_factory() -> Database:
+    return get_db()
+
+
+def _index_service() -> ProjectIndexService:
+    return ProjectIndexService(settings, _database_factory, CodeParser)
+
+
+def _tool_service() -> GraphToolService:
+    return GraphToolService(settings, _database_factory)
+
+
+def _query_service(
+    database: Database, cursor_key: bytes | None = None
+) -> QueryService:
+    """Build the read-only query boundary with an injectable cursor key."""
+    codec = SymbolPageCursorCodec(cursor_key if cursor_key is not None else _CURSOR_KEY)
+    return QueryService(SymbolRepository(database, codec))
+
+
+@mcp.tool()
+def list_symbols(
+    project_name: str,
+    limit: int = 50,
+    cursor: str | None = None,
+    kind: str | None = None,
+    name: str | None = None,
+    qualified_name: str | None = None,
+    relative_path: str | None = None,
+) -> str:
+    """List symbols from the active immutable generation."""
+    database = get_db()
+    try:
+        project_id = get_project_id(database, project_name)
+        filters = SymbolFilters(kind, name, qualified_name, relative_path)
+        result = _query_service(database).list_symbols(project_id, filters, limit, cursor)
+        return result.model_dump_json()
+    except ValueError as error:
+        code = (QueryErrorCode.PROJECT_NOT_FOUND
+                if str(error) == "Project not found."
+                else QueryErrorCode.LIMIT_EXCEEDED)
+        message = "Project not found." if code is QueryErrorCode.PROJECT_NOT_FOUND else "Query parameters are invalid."
+        return SymbolPageError(
+            error=ApiError(code=code, message=message, retryable=False)
+        ).model_dump_json()
+    finally:
+        database.close()
+
 
 @mcp.tool()
 def index_project(project_name: str, root_path: str) -> str:
-    """Initialize a Database connection, walk root_path for code files, and index them."""
-    start_time = time.time()
-    db = get_db()
-    parser = CodeParser()
-    
-    try:
-        cursor = db.conn.cursor()
-        if (row := cursor.execute("SELECT id FROM projects WHERE name = ?", (project_name,)).fetchone()):
-            db.clear_project_data(row[0])
-        project_id = db.add_project(project_name, root_path)
-    except sqlite3.IntegrityError:
-        db.close()
-        return f"Failed to add project {project_name}"
-        
-    valid_exts = {".py", ".js", ".ts", ".dart", ".md"}
-    # Explicitly ignore common non-hidden build/cache folders
-    ignore_dirs = {"node_modules", "build", "dist", "__pycache__", "out", "target"}
-    count = 0
-    tokens_saved = 0
-    for root, dirs, files in os.walk(root_path):
-        # Modify dirs in-place: ignore exact matches and ALL hidden directories (like .git, .venv, .idea)
-        dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
-        
-        for file in files:
-            ext = Path(file).suffix
-            if ext in valid_exts:
-                file_path = os.path.join(root, file)
-                try:
-                    tokens_saved += int(os.path.getsize(file_path) / 4)
-                except Exception:
-                    pass
-                parser.parse_file(db, project_id, file_path)
-                count += 1
-                
-    latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "index_project", latency_ms, tokens_saved)
-    db.close()
-    return f"Indexed {count} files for project '{project_name}'."
+    """Index supported files below a validated project root."""
+    return _index_service().index_project(project_name, root_path)
+
 
 @mcp.tool()
 def update_graph(project_name: str, filepaths: list[str]) -> str:
-    """Parse only the specified files and update their nodes in the DB."""
-    start_time = time.time()
-    db = get_db()
-    parser = CodeParser()
-    
+    """Update only validated files belonging to a registered project."""
+    return _index_service().update_graph(project_name, filepaths)
+
+
+@mcp.tool()
+def rebuild_database(confirmation: str) -> str:
+    """Explicitly discard and recreate the current greenfield Karst database."""
+    if confirmation != "DELETE_AND_REBUILD":
+        return (
+            "Rebuild rejected. This deletes the current Karst database without a "
+            "backup; call rebuild_database(confirmation='DELETE_AND_REBUILD') to "
+            "continue."
+        )
     try:
-        project_id = get_project_id(db, project_name)
-    except ValueError as e:
-        db.close()
-        return str(e)
-        
-    cursor = db.conn.cursor()
-    count = 0
-    tokens_saved = 0
-    for filepath in filepaths:
-        cursor.execute("SELECT id FROM files WHERE project_id = ? AND path = ?", (project_id, filepath))
-        row = cursor.fetchone()
-        if row:
-            cursor.execute("DELETE FROM files WHERE id = ?", (row[0],))
-            db.conn.commit()
-            
-        try:
-            tokens_saved += int(os.path.getsize(filepath) / 4)
-        except Exception:
-            pass
-        parser.parse_file(db, project_id, filepath)
-        count += 1
-        
-    latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "update_graph", latency_ms, tokens_saved)
-    db.close()
-    return f"Updated {count} files for project '{project_name}'."
+        database = Database.rebuild_blocked_legacy_database(settings.db_path)
+    except ValueError as error:
+        return f"Rebuild rejected. {error}"
+    database.close()
+    return "Karst database deleted and rebuilt with the current schema."
+
 
 @mcp.tool()
 def query_symbol(project_name: str, symbol_name: str) -> str:
-    """Return definitions (file and line numbers) of a symbol."""
-    start_time = time.time()
-    db = get_db()
-    try:
-        project_id = get_project_id(db, project_name)
-    except ValueError as e:
-        db.close()
-        return str(e)
-        
-    node = db.get_node_by_name(project_id, symbol_name)
-    if not node:
-        db.close()
-        return f"Symbol '{symbol_name}' not found in project '{project_name}'."
-        
-    cursor = db.conn.cursor()
-    cursor.execute("SELECT path FROM files WHERE id = ?", (node["file_id"],))
-    file_row = cursor.fetchone()
-    file_path = file_row[0] if file_row else "Unknown file"
-    
-    response = f"Symbol '{symbol_name}' ({node['type']}) defined in {file_path} from line {node['start_line']} to {node['end_line']}."
-    
-    try:
-        raw_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-        tokens_saved = max(0, int((raw_size / 4) - (len(response) / 4)))
-    except Exception:
-        tokens_saved = 0
-        
-    latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "query_symbol", latency_ms, tokens_saved)
-    db.close()
-    return response
+    """Return the definition location of a symbol."""
+    return _tool_service().query_symbol(project_name, symbol_name)
+
 
 @mcp.tool()
 def get_file_outline(project_name: str, filepath: str) -> str:
-    """Return all classes/functions defined in a given file."""
-    start_time = time.time()
-    db = get_db()
-    try:
-        project_id = get_project_id(db, project_name)
-    except ValueError as e:
-        db.close()
-        return str(e)
-        
-    cursor = db.conn.cursor()
-    cursor.execute("SELECT id FROM files WHERE project_id = ? AND path = ?", (project_id, filepath))
-    file_row = cursor.fetchone()
-    if not file_row:
-        db.close()
-        return f"File '{filepath}' not found in project '{project_name}'."
-        
-    cursor.execute("SELECT name, type, start_line, end_line FROM nodes WHERE file_id = ? AND (type = 'class' OR type = 'function')", (file_row[0],))
-    nodes = cursor.fetchall()
-    
-    if not nodes:
-        db.close()
-        return f"No classes or functions found in '{filepath}'."
-        
-    result = [f"Outline for {filepath}:"]
-    for name, node_type, start, end in nodes:
-        result.append(f"- {node_type} {name} (lines {start}-{end})")
-        
-    response = "\n".join(result)
-    
-    try:
-        raw_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
-        tokens_saved = max(0, int((raw_size / 4) - (len(response) / 4)))
-    except Exception:
-        tokens_saved = 0
-        
-    latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "get_file_outline", latency_ms, tokens_saved)
-    db.close()
-    return response
+    """Return classes and functions defined in a file."""
+    return _tool_service().get_file_outline(project_name, filepath)
+
 
 @mcp.tool()
 def find_dependencies(project_name: str, symbol_name: str) -> str:
-    """Return dependencies (edges where this symbol is source)."""
-    db = get_db()
-    try:
-        project_id = get_project_id(db, project_name)
-    except ValueError as e:
-        db.close()
-        return str(e)
-        
-    response, lat_s, tokens = do_find_deps(db, project_id, symbol_name, False)
-    db.log_telemetry(project_id, "find_dependencies", lat_s * 1000, tokens)
-    db.close()
-    return response
+    """Return outgoing dependency edges for a symbol."""
+    return _tool_service().dependency_query(
+        project_name, symbol_name, False, do_find_deps
+    )
+
 
 @mcp.tool()
 def find_dependents(project_name: str, symbol_name: str) -> str:
-    """Return dependents (edges where this symbol is target)."""
-    db = get_db()
-    try:
-        project_id = get_project_id(db, project_name)
-    except ValueError as e:
-        db.close()
-        return str(e)
-        
-    response, lat_s, tokens = do_find_deps(db, project_id, symbol_name, True)
-    db.log_telemetry(project_id, "find_dependents", lat_s * 1000, tokens)
-    db.close()
-    return response
+    """Return incoming dependency edges for a symbol."""
+    return _tool_service().dependency_query(
+        project_name, symbol_name, True, do_find_deps
+    )
+
 
 @mcp.tool()
-def log_commit(project_name: str, commit_hash: str, message: str, files_changed: list[dict]) -> str:
-    """Log a git commit and the files impacted by it."""
-    start_time = time.time()
-    db = get_db()
-    try:
-        project_id = get_project_id(db, project_name)
-    except ValueError as e:
-        db.close()
-        return str(e)
-        
-    db.log_commit(project_id, commit_hash, message, files_changed)
-    
-    latency_ms = (time.time() - start_time) * 1000
-    db.log_telemetry(project_id, "log_commit", latency_ms, 0)
-    db.close()
-    return f"Logged commit {commit_hash} for project '{project_name}'."
+def log_commit(
+    project_name: str,
+    commit_hash: str,
+    message: str,
+    files_changed: list[dict],
+) -> str:
+    """Store a commit and its changed files for a registered project."""
+    return _tool_service().log_commit(project_name, commit_hash, message, files_changed)
+
 
 @mcp.tool()
 def backfill_git_history(project_name: str, limit: int = 100) -> str:
-    """Traverse the git history of a project and ingest its commits into the graph."""
-    db = get_db()
-    try:
-        project_id = get_project_id(db, project_name)
-        cursor = db.conn.cursor()
-        cursor.execute("SELECT path FROM projects WHERE id = ?", (project_id,))
-        project_path = cursor.fetchone()[0]
-    except ValueError as e:
-        db.close()
-        return str(e)
-
-    res = do_backfill_git_history(db, project_id, project_name, project_path, limit)
-    db.close()
-    return res
+    """Ingest bounded local Git history for a validated project."""
+    return _tool_service().backfill(project_name, limit, do_backfill_git_history)
 
 
 @mcp.tool()
 def semantic_search(project_name: str, query: str, limit: int = 5) -> str:
-    """Perform a semantic search over the codebase using vector embeddings."""
-    db = get_db()
-    try:
-        project_id = get_project_id(db, project_name)
-    except ValueError as e:
-        db.close()
-        return str(e)
-        
-    response, lat_s, tokens = do_semantic_search(db, project_id, query, limit)
-    db.log_telemetry(project_id, "semantic_search", lat_s * 1000, tokens)
-    db.close()
-    
-    return response
+    """Search pre-provisioned semantic embeddings for a project."""
+    return _tool_service().semantic_search(
+        project_name, query, limit, do_semantic_search
+    )
+
+
+def run(transport_runner: Callable[[], None] | None = None) -> None:
+    """Run the MCP transport; injectable to keep entry-point behavior testable."""
+    (transport_runner or mcp.run)()
+
 
 if __name__ == "__main__":
-    mcp.run()
+    run()

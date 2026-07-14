@@ -1,252 +1,117 @@
-# This is a dummy commit to test the pre-commit hook
-import sqlite3
-from typing import List, Optional, Dict, Any
+from __future__ import annotations
 
-class Database:
-    def __init__(self, db_path: str = ":memory:") -> None:
-        self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
-        self.conn.row_factory = sqlite3.Row
-        
-        # Enable Write-Ahead Logging (WAL) for high-concurrency multi-agent access
-        self.conn.execute("PRAGMA journal_mode=WAL;")
-        self.conn.execute("PRAGMA synchronous=NORMAL;")
-        # Enable foreign keys
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.init_db()
+import sqlite3
+import threading
+from pathlib import Path
+
+from src.db_migrations import MigrationError, migrate
+from src.db_graph_repository import IntegrityReport as IntegrityReport
+from src.db_integrity_repository import IntegrityRepositoryMixin
+from src.db_process_repository import ProcessRepositoryMixin
+
+
+class DatabaseMigrationRecoveryRequired(RuntimeError):
+    """Raised when a legacy database needs an explicitly requested rebuild."""
+
+
+class Database(IntegrityRepositoryMixin, ProcessRepositoryMixin):
+    """Thread-affine SQLite repository with explicit managed transactions."""
+
+    def __init__(self, db_path: str | Path = ":memory:") -> None:
+        self.db_path = str(db_path)
+        self._closed = False
+        self._owner_thread_id = threading.get_ident()
+        self._transaction_depth = 0
+        self._savepoint_sequence = 0
+        self.conn = sqlite3.connect(
+            self.db_path,
+            timeout=30.0,
+            isolation_level=None,
+        )
+        try:
+            self.conn.row_factory = sqlite3.Row
+            self.init_db()
+            self.conn.execute("PRAGMA journal_mode = WAL")
+            self.conn.execute("PRAGMA synchronous = NORMAL")
+            self.conn.execute("PRAGMA busy_timeout = 30000")
+            self.conn.execute("PRAGMA foreign_keys = ON")
+        except MigrationError as error:
+            self.conn.close()
+            self._closed = True
+            if "Project and file paths must be absolute." not in str(error):
+                raise
+            raise DatabaseMigrationRecoveryRequired(
+                "Karst cannot open this legacy database because migration 3 requires "
+                "absolute project and file paths. No data was deleted. For this "
+                "greenfield recovery, explicitly call "
+                "rebuild_database(confirmation='DELETE_AND_REBUILD') to delete and "
+                "recreate the current Karst database."
+            ) from error
+        except BaseException:
+            self.conn.close()
+            self._closed = True
+            raise
+
+    @classmethod
+    def rebuild_blocked_legacy_database(cls, db_path: str | Path) -> Database:
+        """Rebuild only a database blocked by the approved legacy-path recovery.
+
+        This method is intentionally never called while opening an ordinary database.
+        It is only for the specifically approved greenfield recovery workflow; it
+        refuses to delete databases that are otherwise openable.
+        """
+        if str(db_path) == ":memory:":
+            raise ValueError("An in-memory database cannot be rebuilt.")
+        path = Path(db_path)
+        try:
+            database = cls(path)
+        except DatabaseMigrationRecoveryRequired:
+            pass
+        else:
+            database.close()
+            raise ValueError(
+                "Rebuild is only available for the legacy relative-path migration "
+                "blocker. This database does not require that recovery."
+            )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for suffix in ("", "-wal", "-shm"):
+            candidate = Path(f"{path}{suffix}")
+            if candidate.exists():
+                candidate.unlink()
+        return cls(path)
+
+    @property
+    def schema_version(self) -> int:
+        self._ensure_open()
+        return int(self.conn.execute("PRAGMA user_version").fetchone()[0])
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
     def init_db(self) -> None:
-        cursor = self.conn.cursor()
-        
-        # Create projects table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS projects (
-                id INTEGER PRIMARY KEY,
-                name TEXT UNIQUE,
-                path TEXT
-            )
-        ''')
-        
-        # Create files table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS files (
-                id INTEGER PRIMARY KEY,
-                project_id INTEGER,
-                path TEXT,
-                hash TEXT,
-                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
-            )
-        ''')
-        
-        # Create nodes table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS nodes (
-                id INTEGER PRIMARY KEY,
-                project_id INTEGER,
-                file_id INTEGER,
-                type TEXT,
-                name TEXT,
-                start_line INTEGER,
-                end_line INTEGER,
-                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE
-            )
-        ''')
-        
-        # Create edges table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS edges (
-                id INTEGER PRIMARY KEY,
-                project_id INTEGER,
-                source_id INTEGER,
-                target_id INTEGER,
-                type TEXT,
-                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                FOREIGN KEY(source_id) REFERENCES nodes(id) ON DELETE CASCADE,
-                FOREIGN KEY(target_id) REFERENCES nodes(id) ON DELETE CASCADE
-            )
-        ''')
-        
-        # Create telemetry table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS telemetry (
-                id INTEGER PRIMARY KEY,
-                project_id INTEGER,
-                tool_name TEXT,
-                latency_ms REAL,
-                tokens_saved INTEGER,
-                details TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
-            )
-        ''')
-        # Try to alter telemetry if details column doesn't exist
-        try:
-            cursor.execute('ALTER TABLE telemetry ADD COLUMN details TEXT')
-        except sqlite3.OperationalError:
-            pass
-        
-        # Create commits table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS commits (
-                id INTEGER PRIMARY KEY,
-                project_id INTEGER,
-                commit_hash TEXT,
-                message TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
-            )
-        ''')
-        
-        # Create commit files table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS commit_files (
-                id INTEGER PRIMARY KEY,
-                commit_id INTEGER,
-                file_path TEXT,
-                status TEXT,
-                FOREIGN KEY(commit_id) REFERENCES commits(id) ON DELETE CASCADE
-            )
-        ''')
-        
-        # Create active_processes table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS active_processes (
-                pid INTEGER PRIMARY KEY,
-                script_name TEXT,
-                last_heartbeat DATETIME DEFAULT CURRENT_TIMESTAMP,
-                last_status TEXT
-            )
-        ''')
-        
-        self.conn.commit()
+        self._ensure_open()
+        migrate(self.conn)
 
-    def add_project(self, name: str, path: str) -> int:
-        cursor = self.conn.cursor()
-        cursor.execute('INSERT INTO projects (name, path) VALUES (?, ?)', (name, path))
-        self.conn.commit()
-        return cursor.lastrowid or 0
+    def __enter__(self) -> Database:
+        self._ensure_open()
+        return self
 
-    def add_file(self, project_id: int, path: str, file_hash: str) -> int:
-        cursor = self.conn.cursor()
-        cursor.execute('INSERT INTO files (project_id, path, hash) VALUES (?, ?, ?)', (project_id, path, file_hash))
-        self.conn.commit()
-        return cursor.lastrowid or 0
-
-    def add_node(self, project_id: int, file_id: int, node_type: str, name: str, start_line: int, end_line: int) -> int:
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO nodes (project_id, file_id, type, name, start_line, end_line)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (project_id, file_id, node_type, name, start_line, end_line))
-        self.conn.commit()
-        return cursor.lastrowid or 0
-
-    def add_edge(self, project_id: int, source_id: int, target_id: int, edge_type: str) -> int:
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO edges (project_id, source_id, target_id, type)
-            VALUES (?, ?, ?, ?)
-        ''', (project_id, source_id, target_id, edge_type))
-        self.conn.commit()
-        return cursor.lastrowid or 0
-
-    def get_node_by_name(self, project_id: int, name: str) -> Optional[Dict[str, Any]]:
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM nodes WHERE project_id = ? AND name = ?', (project_id, name))
-        row = cursor.fetchone()
-        if row:
-            return {
-                "id": row[0],
-                "project_id": row[1],
-                "file_id": row[2],
-                "type": row[3],
-                "name": row[4],
-                "start_line": row[5],
-                "end_line": row[6]
-            }
-        return None
-
-    def get_edges_for_node(self, node_id: int) -> List[Dict[str, Any]]:
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM edges WHERE source_id = ? OR target_id = ?', (node_id, node_id))
-        rows = cursor.fetchall()
-        edges = []
-        for row in rows:
-            edges.append({
-                "id": row[0],
-                "project_id": row[1],
-                "source_id": row[2],
-                "target_id": row[3],
-                "type": row[4]
-            })
-        return edges
-
-    def clear_project_data(self, project_id: int) -> None:
-        cursor = self.conn.cursor()
-        cursor.execute('DELETE FROM projects WHERE id = ?', (project_id,))
-        self.conn.commit()
-
-    def log_telemetry(self, project_id: Optional[int], tool_name: str, latency_ms: float, tokens_saved: int = 0, details: Optional[str] = None) -> int:
-        """Log a telemetry event."""
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO telemetry (project_id, tool_name, latency_ms, tokens_saved, details)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (project_id, tool_name, latency_ms, tokens_saved, details))
-        self.conn.commit()
-        return cursor.lastrowid or 0
-
-    def log_commit(self, project_id: int, commit_hash: str, message: str, files_changed: list[dict]) -> int:
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO commits (project_id, commit_hash, message)
-            VALUES (?, ?, ?)
-        ''', (project_id, commit_hash, message))
-        commit_id = cursor.lastrowid or 0
-        
-        for file_info in files_changed:
-            cursor.execute('''
-                INSERT INTO commit_files (commit_id, file_path, status)
-                VALUES (?, ?, ?)
-            ''', (commit_id, file_info.get("path", ""), file_info.get("status", "modified")))
-            
-            
-        self.conn.commit()
-        return commit_id
-
-    def register_process(self, pid: int, script_name: str, initial_status: str) -> None:
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO active_processes (pid, script_name, last_heartbeat, last_status)
-            VALUES (?, ?, CURRENT_TIMESTAMP, ?)
-        ''', (pid, script_name, initial_status))
-        self.conn.commit()
-
-    def update_process_heartbeat(self, pid: int, status: str) -> None:
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE active_processes 
-            SET last_heartbeat = CURRENT_TIMESTAMP, last_status = ? 
-            WHERE pid = ?
-        ''', (status, pid))
-        self.conn.commit()
-
-    def unregister_process(self, pid: int) -> None:
-        cursor = self.conn.cursor()
-        cursor.execute('DELETE FROM active_processes WHERE pid = ?', (pid,))
-        self.conn.commit()
-
-    def get_stale_processes(self, timeout_seconds: int) -> List[Dict[str, Any]]:
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT pid, script_name, last_status, 
-                   (julianday('now') - julianday(last_heartbeat)) * 86400.0 AS elapsed_seconds
-            FROM active_processes
-            WHERE elapsed_seconds > ?
-        ''', (timeout_seconds,))
-        rows = cursor.fetchall()
-        return [{"pid": row[0], "script_name": row[1], "last_status": row[2], "elapsed_seconds": row[3]} for row in rows]
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object | None,
+    ) -> None:
+        del exc_type, exc_value, traceback
+        self.close()
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._ensure_owner()
+        if self.conn.in_transaction:
+            self.conn.rollback()
+        self._transaction_depth = 0
         self.conn.close()
+        self._closed = True

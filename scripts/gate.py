@@ -1,165 +1,290 @@
-import argparse
 import json
-import re
-import subprocess
+import math
 import sys
+import uuid
+from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-def run_cmd(cmd):
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        return result
-    except Exception as e:
-        return subprocess.CompletedProcess(args=cmd, returncode=-1, stdout="", stderr=str(e))
+if __package__:
+    from .gate_artifacts import (
+        load_json,
+        validate_coverage_report,
+        validate_pytest_report,
+    )
+    from .gate_cli import run_cli
+    from .gate_ruff import validate_ruff_output
+    from .gate_support import (
+        SECURITY_GUARDRAIL,
+        CommandResult,
+        Runner,
+        discover_python_files,
+        run_command,
+        run_tool,
+        source_checks,
+    )
+else:
+    from gate_artifacts import (  # type: ignore[import-not-found,no-redef]
+        load_json,
+        validate_coverage_report,
+        validate_pytest_report,
+    )
+    from gate_cli import run_cli  # type: ignore[import-not-found,no-redef]
+    from gate_ruff import validate_ruff_output  # type: ignore[import-not-found,no-redef]
+    from gate_support import (  # type: ignore[import-not-found,no-redef]
+        SECURITY_GUARDRAIL,
+        CommandResult,
+        Runner,
+        discover_python_files,
+        run_command,
+        run_tool,
+        source_checks,
+    )
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--shrink-baseline", action="store_true")
-    parser.add_argument("--ci", action="store_true")
-    parser.parse_args()
+DEFAULT_COVERAGE_MIN = 45.0
+DEFAULT_TIMEOUT_SECONDS = 300.0
+DEFAULT_MODULE_COVERAGE_MIN = {
+    "scripts/gate_artifacts.py": 70.0,
+    "scripts/gate_cli.py": 70.0,
+    "scripts/gate_ruff.py": 70.0,
+    "scripts/gate_support.py": 70.0,
+    "src/database.py": 70.0,
+    "src/database_session.py": 70.0,
+    "src/db_generation_identity.py": 70.0,
+    "src/db_graph_repository.py": 70.0,
+    "src/db_integrity_repository.py": 70.0,
+    "src/db_migration_v3.py": 70.0,
+    "src/db_schema_v3.py": 70.0,
+    "src/db_schema_v3_contract.py": 70.0,
+    "src/db_schema_v3_expectations.py": 70.0,
+    "src/git_logic.py": 70.0,
+    "src/indexing_service.py": 70.0,
+    "src/main.py": 70.0,
+    "src/parser.py": 80.0,
+    "src/parser_models.py": 80.0,
+    "src/parser_runtime.py": 80.0,
+    "src/process_manager.py": 70.0,
+    "src/query_logic.py": 70.0,
+    "src/security.py": 85.0,
+    "src/settings.py": 80.0,
+    "src/tool_service.py": 70.0,
+    "src/web.py": 70.0,
+    "src/web_auth.py": 70.0,
+    "src/web_data.py": 70.0,
+    "src/web_graph.py": 70.0,
+    "src/web_history.py": 70.0,
+    "src/web_sessions.py": 70.0,
+}
+__all__ = ["CommandResult", "execute_gate", "main", "run_command"]
 
-    cwd = Path.cwd()
-    gate_report = {
-        "schema_version": "1.0",
-        "analysis": {"errors": 0, "warnings": 0, "violations": []},
-        "size": {"violations": [], "largest_file": 0, "p90_file": 0},
-        "struct": {"violations": []},
-        "tests": {"total": 0, "passed": 0, "failed": 0, "failures": []},
-        "coverage": {"pct": "n/a"}
+
+def _validated_percentage(value: float, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be numeric")
+    parsed = float(value)
+    if not math.isfinite(parsed) or not 0 <= parsed <= 100:
+        raise ValueError(f"{label} must be finite and between 0 and 100")
+    return parsed
+
+
+def _validated_timeout(value: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("timeout must be numeric")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise ValueError("timeout must be finite and greater than zero")
+    return parsed
+
+
+def _module_policy(policy: Mapping[str, float] | None) -> dict[str, float]:
+    selected = DEFAULT_MODULE_COVERAGE_MIN if policy is None else policy
+    validated: dict[str, float] = {}
+    for path, floor in selected.items():
+        normalized = path.replace("\\", "/")
+        if not normalized or Path(normalized).is_absolute():
+            raise ValueError("module coverage paths must be non-empty and relative")
+        validated[normalized] = _validated_percentage(
+            floor, f"module floor {normalized}"
+        )
+    return validated
+
+
+def execute_gate(
+    root: Path,
+    *,
+    runner: Runner = run_command,
+    coverage_min: float = DEFAULT_COVERAGE_MIN,
+    module_coverage_min: Mapping[str, float] | None = None,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+) -> tuple[int, dict[str, Any]]:
+    root = root.resolve()
+    coverage_min = _validated_percentage(coverage_min, "aggregate coverage floor")
+    timeout_seconds = _validated_timeout(timeout_seconds)
+    module_policy = _module_policy(module_coverage_min)
+    run_id = (
+        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        + f"-{uuid.uuid4().hex[:8]}"
+    )
+    run_directory = root / "logs" / "gate-runs" / run_id
+    run_directory.mkdir(parents=True, exist_ok=False)
+    pytest_report_path = run_directory / "pytest-report.json"
+    coverage_path = run_directory / "coverage.json"
+    # Keep pytest worktrees short enough for Windows Git's nested lock paths.
+    pytest_basetemp = root.parent / "kgt" / run_id
+    pytest_basetemp.parent.mkdir(parents=True, exist_ok=True)
+    files = discover_python_files(root)
+    source_failures = source_checks(root, files)
+    all_failures = [
+        *source_failures["size"],
+        *source_failures["structure"],
+        *source_failures["security"],
+    ]
+
+    tools: dict[str, Any] = {}
+    ruff_result, tools["ruff"], failures = run_tool(
+        "ruff",
+        ["uv", "run", "ruff", "check", *files, "--output-format=json"],
+        root,
+        run_directory,
+        runner,
+        timeout_seconds,
+    )
+    all_failures.extend(failures)
+    ruff_schema_failures: list[str] = []
+    ruff_findings = validate_ruff_output(ruff_result.stdout, ruff_schema_failures)
+    if ruff_schema_failures or ruff_findings:
+        tools["ruff"]["status"] = "failed"
+    all_failures.extend(ruff_schema_failures)
+    all_failures.extend(ruff_findings)
+
+    _, tools["mypy"], failures = run_tool(
+        "mypy",
+        ["uv", "run", "mypy", *files],
+        root,
+        run_directory,
+        runner,
+        timeout_seconds,
+    )
+    all_failures.extend(failures)
+    pytest_command = [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests",
+        f"--basetemp={pytest_basetemp}",
+        "--json-report",
+        f"--json-report-file={pytest_report_path}",
+        "--cov=src",
+        "--cov=scripts",
+        "--cov-report=",
+        f"--cov-report=json:{coverage_path}",
+        f"--cov-fail-under={coverage_min:g}",
+    ]
+    pytest_result, tools["pytest"], failures = run_tool(
+        "pytest", pytest_command, root, run_directory, runner, timeout_seconds
+    )
+    all_failures.extend(failures)
+
+    test_failures: list[str] = []
+    test_data = load_json(pytest_report_path, "[G4 test] pytest report", test_failures)
+    test_stats = validate_pytest_report(test_data, test_failures)
+    if (
+        test_stats["exitcode"] >= 0
+        and pytest_result.returncode is not None
+        and test_stats["exitcode"] != pytest_result.returncode
+    ):
+        test_failures.append(
+            "[G4 test] artifact exitcode does not match pytest process"
+        )
+    if test_stats["failed"]:
+        test_failures.append(
+            f"[G4 test] pytest reported {test_stats['failed']} failed/error tests"
+        )
+    if tools["pytest"]["status"] == "failed":
+        test_failures.append("[G4 test] pytest process did not complete successfully")
+    all_failures.extend(test_failures)
+
+    coverage_failures: list[str] = []
+    coverage_data = load_json(
+        coverage_path, "[G5 coverage] coverage report", coverage_failures
+    )
+    coverage_pct, observed_modules = validate_coverage_report(
+        coverage_data, coverage_failures
+    )
+    if coverage_pct is not None and coverage_pct < coverage_min:
+        coverage_failures.append(
+            f"[G5 coverage] {coverage_pct:.2f}% is below the {coverage_min:.2f}% aggregate floor"
+        )
+    module_results: dict[str, dict[str, Any]] = {}
+    for path, minimum in module_policy.items():
+        observed = observed_modules.get(path)
+        module_failed = observed is None or observed < minimum
+        if observed is None:
+            coverage_failures.append(f"[G5 coverage] required module is absent: {path}")
+        elif module_failed:
+            coverage_failures.append(
+                f"[G5 coverage] {path} {observed:.2f}% is below the {minimum:.2f}% floor"
+            )
+        module_results[path] = {
+            "status": "failed" if module_failed else "passed",
+            "pct": round(observed, 2) if observed is not None else None,
+            "minimum_pct": minimum,
+        }
+    all_failures.extend(coverage_failures)
+
+    report: dict[str, Any] = {
+        "schema_version": "2.1",
+        "status": "failed" if all_failures else "passed",
+        "scope": {"python_files": files},
+        "tools": tools,
+        "size": {
+            "status": "failed" if source_failures["size"] else "passed",
+            "violations": source_failures["size"],
+        },
+        "structure": {
+            "status": "failed" if source_failures["structure"] else "passed",
+            "violations": source_failures["structure"],
+        },
+        "security": {
+            "status": "failed" if source_failures["security"] else "passed",
+            "guardrail": SECURITY_GUARDRAIL,
+            "violations": source_failures["security"],
+        },
+        "tests": {
+            "status": "failed" if test_failures else "passed",
+            "total": test_stats["total"],
+            "passed": test_stats["passed"],
+            "failed": test_stats["failed"],
+            "failures": test_failures,
+        },
+        "coverage": {
+            "status": "failed" if coverage_failures else "passed",
+            "scope": ["src", "scripts"],
+            "pct": round(coverage_pct, 2) if coverage_pct is not None else None,
+            "minimum_pct": coverage_min,
+            "modules": module_results,
+            "failures": coverage_failures,
+        },
+        "failures": all_failures,
+        "artifacts": {"run_directory": run_directory.relative_to(root).as_posix()},
     }
-    
-    failures = {
-        "G1": [],
-        "G2": [],
-        "G3": [],
-        "G4": [],
-        "G5": [],
-        "G6": []
-    }
+    rendered_report = json.dumps(report, indent=2, allow_nan=False)
+    (run_directory / "gate-report.json").write_text(rendered_report, encoding="utf-8")
+    (root / "gate_report.json").write_text(rendered_report, encoding="utf-8")
+    return (1 if all_failures else 0), report
 
-    # G1: ruff and mypy
-    ruff_res = run_cmd(["uv", "run", "ruff", "check", "--output-format=json"])
-    try:
-        ruff_data = json.loads(ruff_res.stdout) if ruff_res.stdout else []
-    except Exception:
-        ruff_data = []
-    
-    for item in ruff_data:
-        gate_report["analysis"]["errors"] += 1
-        failures["G1"].append(f"[G1 ruff] {item.get('location', {}).get('row', 0)}: {item.get('message', '')} ({item.get('filename', '')})")
 
-    mypy_res = run_cmd(["uv", "run", "mypy", "src", "tests"])
-    for line in mypy_res.stdout.splitlines():
-        if "error:" in line:
-            gate_report["analysis"]["errors"] += 1
-            failures["G1"].append(f"[G1 mypy] {line.strip()}")
+def main(argv: list[str] | None = None) -> int:
+    return run_cli(
+        execute_gate,
+        DEFAULT_COVERAGE_MIN,
+        DEFAULT_TIMEOUT_SECONDS,
+        DEFAULT_MODULE_COVERAGE_MIN,
+        argv,
+    )
 
-    # G2: Size ratchet
-    src_dir = cwd / "src"
-    sizes = []
-    if src_dir.exists():
-        for py_file in src_dir.rglob("*.py"):
-            try:
-                with open(py_file, "r", encoding="utf-8") as f:
-                    lines = len(f.readlines())
-                    sizes.append(lines)
-                    if lines > 300:
-                        failures["G2"].append(f"[G2 size] {py_file.relative_to(cwd)} {lines} > baseline 300")
-            except Exception:
-                pass
-    if sizes:
-        sizes.sort()
-        gate_report["size"]["largest_file"] = sizes[-1]
-        gate_report["size"]["p90_file"] = sizes[int(len(sizes)*0.9)]
-
-    # G3: Structural rules & G6: Security Anti-Patterns
-    if src_dir.exists():
-        for py_file in src_dir.rglob("*.py"):
-            try:
-                with open(py_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    for idx, line in enumerate(content.splitlines()):
-                        # G3 checks
-                        if re.match(r'^\s*from\s+.*\s+import\s+\*', line) or re.match(r'^\s*import\s+\*', line):
-                            failures["G3"].append(f"[G3 import] {py_file.relative_to(cwd)}:{idx+1}: {line.strip()}")
-                            
-                        # G6 checks (Security anti-patterns)
-                        if "shell=True" in line.replace(" ", ""):
-                            failures["G6"].append(f"[G6 security] {py_file.relative_to(cwd)}:{idx+1}: shell=True is forbidden.")
-                        if re.search(r'os\.system\s*\(', line):
-                            failures["G6"].append(f"[G6 security] {py_file.relative_to(cwd)}:{idx+1}: os.system() is forbidden. Use process_manager.")
-                        if re.search(r'os\.popen\s*\(', line):
-                            failures["G6"].append(f"[G6 security] {py_file.relative_to(cwd)}:{idx+1}: os.popen() is forbidden. Use process_manager.")
-            except Exception:
-                pass
-
-    # G4 & G5: Tests and Coverage
-    test_res = run_cmd(["uv", "run", "pytest", "--json-report", "-q", "--cov", "--cov-report=json"])
-    # Read .report.json generated by pytest-json-report
-    report_json_path = cwd / ".report.json"
-    if report_json_path.exists():
-        with open(report_json_path, "r", encoding="utf-8") as f:
-            t_data = json.load(f)
-            gate_report["tests"]["total"] = t_data.get("summary", {}).get("total", 0)
-            gate_report["tests"]["passed"] = t_data.get("summary", {}).get("passed", 0)
-            gate_report["tests"]["failed"] = t_data.get("summary", {}).get("failed", 0)
-            for test in t_data.get("tests", []):
-                if test.get("outcome") == "failed":
-                    fail_msg = test.get("call", {}).get("crash", {}).get("message", "Unknown error")
-                    failures["G4"].append(f"[G4 test] {test.get('nodeid')} {fail_msg}")
-    else:
-        failures["G4"].append("[G4 test] .report.json not generated (pytest failed?)")
-        if test_res.returncode != 0:
-            failures["G4"].append(test_res.stdout.splitlines()[0] if test_res.stdout else "Unknown error")
-            
-    # Read coverage.json
-    cov_json_path = cwd / "coverage.json"
-    if cov_json_path.exists():
-        with open(cov_json_path, "r", encoding="utf-8") as f:
-            c_data = json.load(f)
-            gate_report["coverage"]["pct"] = round(c_data.get("totals", {}).get("percent_covered", 0), 2)
-            
-    gate_report["size"]["violations"] = failures["G2"]
-    gate_report["struct"]["violations"] = failures["G3"]
-    gate_report["analysis"]["violations"] = failures["G1"]
-    gate_report["tests"]["failures"] = failures["G4"]
-    # We can stuff G6 violations into analysis or a separate field, but keeping it simple for print out:
-    # If there are any G6 violations, we will flag it in the print block
-
-    with open(cwd / "gate_report.json", "w", encoding="utf-8") as f:
-        json.dump(gate_report, f, indent=2)
-
-    try:
-        sha_res = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True)
-        sha = sha_res.stdout.strip()
-    except Exception:
-        sha = "unknown"
-
-    passed_tests = gate_report["tests"]["passed"]
-    total_tests = gate_report["tests"]["total"]
-    e = gate_report["analysis"]["errors"]
-    w = gate_report["analysis"]["warnings"]
-    size_v = len(failures["G2"])
-    struct_v = len(failures["G3"])
-    security_v = len(failures["G6"])
-    cov = gate_report["coverage"]["pct"]
-
-    is_pass = (e == 0 and size_v == 0 and struct_v == 0 and security_v == 0 and gate_report["tests"]["failed"] == 0 and not failures["G4"])
-    
-    if is_pass:
-        print(f"GATE PASS  sha={sha}  tests={passed_tests}/{total_tests}  analysis={e}E/{w}W  size={size_v}  struct={struct_v}  sec={security_v}  cov={cov}%")
-        sys.exit(0)
-    else:
-        print(f"GATE FAIL  sha={sha}")
-        for cat in ["G1", "G2", "G3", "G4", "G5", "G6"]:
-            cat_fails = failures[cat]
-            if not cat_fails:
-                continue
-            for msg in cat_fails[:15]:
-                print(msg)
-            if len(cat_fails) > 15:
-                print(f"({len(cat_fails) - 15} more)")
-        sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

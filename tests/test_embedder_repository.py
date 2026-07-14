@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+from scripts import embedder
+from scripts.embedder import EmbeddingRecord, pending_node_ids, store_embedding_batch
+from src.database import Database
+from src.settings import TRUSTED_LOCAL_OWNER
+
+
+def test_embedder_uses_migrated_schema_and_idempotent_batch_storage(
+    tmp_path: Path,
+) -> None:
+    with Database(tmp_path / "embedder.db") as database:
+        project_id = database.add_project(
+            "project",
+            "/project",
+            TRUSTED_LOCAL_OWNER,
+            "stable:project",
+        )
+        file_id = database.add_file(project_id, "/project/a.py", "hash")
+        node_id = database.add_node(
+            project_id, file_id, "function", "run", 1, 2
+        )
+
+        assert pending_node_ids(database) == (node_id,)
+        store_embedding_batch(
+            database,
+            (
+                EmbeddingRecord(
+                    node_id,
+                    "[0.1]",
+                    content_hash="first",
+                    model_revision="model@1",
+                ),
+            ),
+        )
+        store_embedding_batch(
+            database,
+            (
+                EmbeddingRecord(
+                    node_id,
+                    "[0.2]",
+                    content_hash="second",
+                    model_revision="model@1",
+                ),
+            ),
+        )
+
+        assert pending_node_ids(database) == ()
+        assert database.conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 1
+        assert tuple(
+            database.conn.execute(
+                "SELECT vector, content_hash, model_revision FROM embeddings"
+            ).fetchone()
+        ) == ("[0.2]", "second", "model@1")
+
+
+def test_embedder_model_is_pinned_and_never_downloaded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+    fake_module = ModuleType("sentence_transformers")
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_name: str, **kwargs: object) -> None:
+            observed["model_name"] = model_name
+            observed.update(kwargs)
+
+    fake_module.SentenceTransformer = FakeSentenceTransformer  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
+
+    embedder.get_embed_model()
+
+    assert observed == {
+        "model_name": embedder.MODEL_NAME,
+        "revision": embedder.MODEL_REVISION,
+        "local_files_only": True,
+        "trust_remote_code": False,
+    }
