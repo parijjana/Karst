@@ -3,8 +3,8 @@ from __future__ import annotations
 import sqlite3
 from collections import Counter
 
-from src.db_migration_support import table_names
-from src.db_schema import MANAGED_TABLE_SQL
+from src.karst_core.database.db_migration_support import table_names
+from src.karst_core.database.db_schema import MANAGED_TABLE_SQL
 
 
 class SchemaShapeError(RuntimeError):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import NAMESPACE_URL, uuid5
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.index_identity import derive_file_stable_id
 from src.index_models import (
     DiagnosticSeverity,

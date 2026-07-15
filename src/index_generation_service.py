@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.index_discovery import DiscoveryLimits, discover_snapshots
 from src.index_models import (
     DiagnosticSeverity, IndexCounts, IndexDiagnostic, IndexResult, IndexStatus,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.db_graph_repository import IntegrityReport, OperationalRepositoryMixin
+from src.karst_core.database.db_graph_repository import IntegrityReport, OperationalRepositoryMixin
 
 
 class IntegrityRepositoryMixin(OperationalRepositoryMixin):

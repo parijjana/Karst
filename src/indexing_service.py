@@ -5,8 +5,8 @@ import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from src.database import Database
-from src.database_session import database_session, get_project_id
+from src.karst_core.database.database import Database
+from src.karst_core.database.database_session import database_session, get_project_id
 from src.index_generation_service import IncrementalIndexService
 from src.index_models import IndexResult
 from src.parser import CodeParser, ParseOutcome, ParseStatus, ParseSummary

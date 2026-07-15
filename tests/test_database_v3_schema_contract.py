@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from tests.database_v3_contract_support import (
     EXPECTED_COLUMNS,
     MANIFEST,

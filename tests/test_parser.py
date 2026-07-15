@@ -8,7 +8,7 @@ from typing import BinaryIO, cast
 import pytest
 
 from src import parser as parser_module
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.index_models import IndexBudget
 from src.parser import (
     CodeParser,

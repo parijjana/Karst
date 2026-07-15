@@ -14,7 +14,7 @@ import pytest
 import uvicorn
 from fastapi import Request
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.security import stable_project_id
 from src.settings import Settings, TRUSTED_LOCAL_OWNER
 from src.web import create_app

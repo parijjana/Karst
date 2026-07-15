@@ -3,14 +3,14 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict
 
-from src.db_generation_identity import (
+from src.karst_core.database.db_generation_identity import (
     LegacyFileIdentity,
     derive_legacy_file_identity,
     derive_legacy_symbol_id,
 )
-from src.db_migration_support import SqlRow, SqlValue, as_int, execute_ddl, select_dicts
-from src.db_schema_contract import validate_schema_shape
-from src.db_schema_v3 import (
+from src.karst_core.database.db_migration_support import SqlRow, SqlValue, as_int, execute_ddl, select_dicts
+from src.karst_core.database.db_schema_contract import validate_schema_shape
+from src.karst_core.database.db_schema_v3 import (
     DROP_V2_GRAPH_TABLES,
     GENERATION_SCHEMA_SQL,
     RENAME_V3_TABLES,

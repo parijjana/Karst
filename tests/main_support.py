@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.security import stable_project_id
 from src.settings import Settings
 from src.settings import TRUSTED_LOCAL_OWNER

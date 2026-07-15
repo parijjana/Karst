@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from src.db_schema_contract import _normalize_schema_sql
+from src.karst_core.database.db_schema_contract import _normalize_schema_sql
 
 
 def _names(value: str) -> tuple[str, ...]:

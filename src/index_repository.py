@@ -8,7 +8,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Iterable
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.index_models import DiagnosticSeverity, IndexDiagnostic, ParseStatus, ParsedFile
 
 

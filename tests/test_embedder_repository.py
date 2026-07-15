@@ -8,7 +8,7 @@ import pytest
 
 from scripts import embedder
 from scripts.embedder import EmbeddingRecord, pending_node_ids, store_embedding_batch
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.settings import TRUSTED_LOCAL_OWNER
 
 

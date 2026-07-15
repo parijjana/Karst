@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from src.database import Database
-from src.db_migrations import CURRENT_SCHEMA_VERSION, MigrationError
+from src.karst_core.database.database import Database
+from src.karst_core.database.db_migrations import CURRENT_SCHEMA_VERSION, MigrationError
 
 
 def _rebuild_table(

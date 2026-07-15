@@ -6,7 +6,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.settings import TRUSTED_LOCAL_OWNER
 
 

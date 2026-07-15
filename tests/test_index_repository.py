@@ -3,7 +3,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.index_identity import FileCandidate, SourceSnapshot
 from src.index_models import ParseStatus, ParsedFile, ParsedSymbol
 from src.index_identity import derive_symbol_stable_id

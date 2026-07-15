@@ -4,13 +4,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from src.db_generation_identity import (
+from src.karst_core.database.db_generation_identity import (
     compatibility_absolute_path,
     derive_legacy_file_identity,
     derive_legacy_symbol_id,
     infer_language,
 )
-from src.db_transaction import TransactionRepositoryMixin
+from src.karst_core.database.db_transaction import TransactionRepositoryMixin
 from src.core_settings import TRUSTED_LOCAL_OWNER
 
 

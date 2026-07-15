@@ -6,7 +6,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from tests.database_v3_contract_support import (
     PROJECT_ID,
     SECOND_PROJECT_ID,

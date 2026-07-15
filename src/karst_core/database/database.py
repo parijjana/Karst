@@ -4,9 +4,9 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from src.db_migrations import MigrationError, migrate
-from src.db_graph_repository import IntegrityReport as IntegrityReport
-from src.db_integrity_repository import IntegrityRepositoryMixin
+from src.karst_core.database.db_migrations import MigrationError, migrate
+from src.karst_core.database.db_graph_repository import IntegrityReport as IntegrityReport
+from src.karst_core.database.db_integrity_repository import IntegrityRepositoryMixin
 
 
 class DatabaseMigrationRecoveryRequired(RuntimeError):

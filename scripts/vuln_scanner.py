@@ -1,5 +1,5 @@
 from pathlib import Path
-from src.database import Database
+from src.karst_core.database.database import Database
 
 def scan_file(db: Database, project_id: int, file_id: int, file_path: str) -> int:
     vulns_found = 0

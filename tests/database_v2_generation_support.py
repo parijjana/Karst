@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-from src.db_migrations import MIGRATIONS, migrate
+from src.karst_core.database.db_migrations import MIGRATIONS, migrate
 
 
 PROJECT_STABLE_ID = str(uuid5(NAMESPACE_URL, "project:/legacy/project"))

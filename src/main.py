@@ -5,8 +5,8 @@ import secrets
 
 from mcp.server.fastmcp import FastMCP
 
-from src.database import Database
-from src.database_session import get_project_id
+from src.karst_core.database.database import Database
+from src.karst_core.database.database_session import get_project_id
 from src.git_logic import do_backfill_git_history
 from src.indexing_service import ProjectIndexService
 from src.parser import CodeParser, ParseStatus, ParseSummary

@@ -1,6 +1,6 @@
 import pytest
 from typing import Generator
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.settings import TRUSTED_LOCAL_OWNER
 
 

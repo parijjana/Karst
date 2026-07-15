@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from types import MappingProxyType
 
-from src.db_schema import MANAGED_TABLE_SQL
+from src.karst_core.database.db_schema import MANAGED_TABLE_SQL
 
 
 UUID5_CHECK = (

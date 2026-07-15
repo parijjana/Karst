@@ -6,7 +6,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 import tree_sitter as tree_sitter
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.index_models import (
     DiagnosticSeverity,
     IndexBudget,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict
 
-from src.db_migration_support import (
+from src.karst_core.database.db_migration_support import (
     SqlRow,
     SqlValue,
     as_int,

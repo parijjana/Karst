@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import sqlite3
 
-from src.db_migration_support import table_names
-from src.db_schema_contract import (
+from src.karst_core.database.db_migration_support import table_names
+from src.karst_core.database.db_schema_contract import (
     SchemaShapeError,
     _actual_foreign_keys,
     _normalize_default_sql,
     _normalize_schema_sql,
     validate_schema_shape,
 )
-from src.db_schema_v3 import V3_MANAGED_TABLE_SQL
-from src.db_schema_v3_expectations import (
+from src.karst_core.database.db_schema_v3 import V3_MANAGED_TABLE_SQL
+from src.karst_core.database.db_schema_v3_expectations import (
     EXPECTED_COLUMNS,
     EXPECTED_DEFAULTS,
     EXPECTED_FOREIGN_KEYS,

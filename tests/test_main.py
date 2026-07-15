@@ -8,7 +8,7 @@ import pytest
 import json
 
 from src import main
-from src.database import DatabaseMigrationRecoveryRequired
+from src.karst_core.database.database import DatabaseMigrationRecoveryRequired
 from tests.database_v2_generation_support import create_v2_database
 from tests.main_support import configured_settings, seed_populated_legacy_generation
 

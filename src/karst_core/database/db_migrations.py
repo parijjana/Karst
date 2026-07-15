@@ -5,12 +5,12 @@ import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from src.db_migration_steps import baseline, harden_schema
-from src.db_migration_v3 import generation_schema
-from src.db_migration_support import SchemaUpgradeError, table_names
-from src.db_schema import SCHEMA_MIGRATIONS_SQL
-from src.db_schema_contract import SchemaShapeError
-from src.db_schema_v3_contract import validate_v3_schema_shape
+from src.karst_core.database.db_migration_steps import baseline, harden_schema
+from src.karst_core.database.db_migration_v3 import generation_schema
+from src.karst_core.database.db_migration_support import SchemaUpgradeError, table_names
+from src.karst_core.database.db_schema import SCHEMA_MIGRATIONS_SQL
+from src.karst_core.database.db_schema_contract import SchemaShapeError
+from src.karst_core.database.db_schema_v3_contract import validate_v3_schema_shape
 
 
 class MigrationError(RuntimeError):

@@ -2,7 +2,7 @@ import time
 import subprocess
 from pathlib import Path
 
-from src.database import Database
+from src.karst_core.database.database import Database
 
 def main() -> None:
     data_dir = Path("data")

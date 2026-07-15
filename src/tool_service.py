@@ -5,8 +5,8 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from src.database import Database
-from src.database_session import database_session, get_project_id
+from src.karst_core.database.database import Database
+from src.karst_core.database.database_session import database_session, get_project_id
 from src.security import (
     PathSecurityPolicy,
     SecurityViolation,

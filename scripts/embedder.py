@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.core_settings import core_settings
 
 

@@ -7,7 +7,7 @@ import pytest
 import tree_sitter
 
 from src import parser as parser_module
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.parser import CodeParser, ParseDiagnosticCode, ParseStatus, ParseSummary
 from src.settings import TRUSTED_LOCAL_OWNER
 

@@ -5,7 +5,7 @@ import os
 import time
 from pathlib import Path
 
-from src.database import Database
+from src.karst_core.database.database import Database
 
 
 def optimize_database(db_path: Path) -> None:

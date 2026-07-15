@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.security import SecurityViolation, security_error, validate_project_name
 from src.core_settings import TRUSTED_LOCAL_OWNER
 

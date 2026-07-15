@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from src.database import Database
+from src.karst_core.database.database import Database
 from src.settings import Settings, TRUSTED_LOCAL_OWNER
 from src.web import create_app
 

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from src.database import Database
-from src.db_migrations import MigrationError, migrate
+from src.karst_core.database.database import Database
+from src.karst_core.database.db_migrations import MigrationError, migrate
 from tests.database_v2_generation_support import create_v2_database
 
 

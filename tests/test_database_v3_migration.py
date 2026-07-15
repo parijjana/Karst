@@ -4,8 +4,8 @@ import sqlite3
 from pathlib import Path
 from uuid import UUID
 
-from src.database import Database
-from src.db_migrations import MIGRATIONS, migrate
+from src.karst_core.database.database import Database
+from src.karst_core.database.db_migrations import MIGRATIONS, migrate
 from src.index_identity import derive_file_stable_id
 from tests.database_v2_generation_support import (
     PROJECT_STABLE_ID,

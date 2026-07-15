@@ -3,20 +3,20 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from src.db_migration_conflicts import (
+from src.karst_core.database.db_migration_conflicts import (
     copy_commit_files,
     copy_commits,
     copy_edges,
     copy_embeddings,
     copy_nodes,
 )
-from src.db_migration_support import (
+from src.karst_core.database.db_migration_support import (
     SchemaUpgradeError,
     columns,
     execute_ddl,
     table_names,
 )
-from src.db_schema import (
+from src.karst_core.database.db_schema import (
     APPLICATION_TABLES,
     DROP_LEGACY_TABLES,
     HARDENED_TABLES_SQL,

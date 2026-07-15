@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath, PureWindowsPath
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from src.db_migration_support import SchemaUpgradeError
+from src.karst_core.database.db_migration_support import SchemaUpgradeError
 LEGACY_PROJECT_NAMESPACE = uuid5(NAMESPACE_URL, "karst:legacy-project:v3")
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _IDENTITY_TOKEN = re.compile(r"[^a-z0-9_+-]+")

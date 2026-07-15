@@ -4,7 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from src.database import Database
+from src.karst_core.database.database import Database
 
 from tests.test_database_migrations import _create_legacy_schema
 
