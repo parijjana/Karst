@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 
-from src import process_manager
+from src.mission_control_transition import process_manager
 
 
 class FakeProcess:

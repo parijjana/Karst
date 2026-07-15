@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from src.process_manager import (
+from src.mission_control_transition.process_manager import (
     get_script_status,
     shutdown_all_scripts,
     start_script,

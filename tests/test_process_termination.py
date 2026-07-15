@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 
-from src import process_manager
+from src.mission_control_transition import process_manager
 from tests.test_process_manager import FakeProcess
 
 

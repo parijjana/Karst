@@ -29,7 +29,7 @@ EXPECTED_DEFAULT_MODULE_FLOORS = {
     "src/parser.py": 80.0,
     "src/parser_models.py": 80.0,
     "src/parser_runtime.py": 80.0,
-    "src/process_manager.py": 70.0,
+    "src/mission_control_transition/process_manager.py": 70.0,
     "src/query_logic.py": 70.0,
     "src/security.py": 85.0,
     "src/settings.py": 80.0,
