@@ -7,14 +7,13 @@ from pathlib import Path
 from src.db_migrations import MigrationError, migrate
 from src.db_graph_repository import IntegrityReport as IntegrityReport
 from src.db_integrity_repository import IntegrityRepositoryMixin
-from src.db_process_repository import ProcessRepositoryMixin
 
 
 class DatabaseMigrationRecoveryRequired(RuntimeError):
     """Raised when a legacy database needs an explicitly requested rebuild."""
 
 
-class Database(IntegrityRepositoryMixin, ProcessRepositoryMixin):
+class Database(IntegrityRepositoryMixin):
     """Thread-affine SQLite repository with explicit managed transactions."""
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:

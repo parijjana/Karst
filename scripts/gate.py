@@ -65,6 +65,7 @@ DEFAULT_MODULE_COVERAGE_MIN = {
     "src/parser_models.py": 80.0,
     "src/parser_runtime.py": 80.0,
     "src/mission_control_transition/process_manager.py": 70.0,
+    "src/mission_control_transition/runtime_store.py": 70.0,
     "src/query_logic.py": 70.0,
     "src/security.py": 85.0,
     "src/settings.py": 80.0,

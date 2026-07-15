@@ -10,7 +10,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from src.database import Database
+from src.mission_control_transition.runtime_store import RuntimeStore, create_runtime_store
 
 
 COMMAND_TIMEOUT_SECONDS = 5.0
@@ -148,7 +148,7 @@ def terminate_process(
     return TerminationResult(f"Successfully killed PID {pid}.", unregister=True)
 
 
-def _process_stale_record(db: Database, process: Mapping[str, Any]) -> None:
+def _process_stale_record(store: RuntimeStore, process: Mapping[str, Any]) -> None:
     pid = process["pid"]
     script_name = process["script_name"]
     last_status = process["last_status"]
@@ -166,47 +166,40 @@ def _process_stale_record(db: Database, process: Mapping[str, Any]) -> None:
         f"Last Status: '{last_status}'. Hung for {elapsed:.1f}s. {result.message}"
     )
     try:
-        db.log_telemetry(
-            None,
-            f"watchdog_kill:{script_name}",
-            elapsed * 1000,
-            0,
-            details,
-        )
+        store.record_event("watchdog_termination", pid, script_name, details)
     finally:
         if result.unregister:
-            db.unregister_process(pid)
+            store.unregister_process(pid)
 
 
 def process_stale_records(
-    db: Database,
+    store: RuntimeStore,
     stale_processes: Iterable[Mapping[str, Any]],
 ) -> None:
     for process in stale_processes:
         try:
-            _process_stale_record(db, process)
+            _process_stale_record(store, process)
         except Exception as exc:
             print(f"Watchdog process error: {exc}")
 
 
 def main() -> None:
-    db_path = "data/knowledge_graph.db"
     timeout_seconds = 60
     check_interval = 10
 
     print(f"Starting Watchdog Daemon (Timeout: {timeout_seconds}s)")
 
     while True:
-        db: Database | None = None
+        store: RuntimeStore | None = None
         try:
-            db = Database(db_path)
-            stale_processes = db.get_stale_processes(timeout_seconds)
-            process_stale_records(db, stale_processes)
+            store = create_runtime_store()
+            stale_processes = store.get_stale_processes(timeout_seconds)
+            process_stale_records(store, stale_processes)
         except Exception as exc:
             print(f"Watchdog error: {exc}")
         finally:
-            if db is not None:
-                db.close()
+            if store is not None:
+                store.close()
 
         time.sleep(check_interval)
 

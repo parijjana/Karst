@@ -190,19 +190,18 @@ def test_process_exists_checks_exact_windows_tasklist_pid(
     ]
 
 
-def test_terminal_cleanup_survives_telemetry_failure_and_next_record_runs(
+def test_terminal_cleanup_survives_event_failure_and_next_record_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class TelemetryFailingDatabase:
+    class EventFailingStore:
         def __init__(self) -> None:
-            self.telemetry_calls = 0
+            self.event_calls = 0
             self.unregistered: list[int] = []
 
-        def log_telemetry(self, *args: Any, **kwargs: Any) -> int:
-            self.telemetry_calls += 1
-            if self.telemetry_calls == 1:
-                raise RuntimeError("telemetry unavailable")
-            return self.telemetry_calls
+        def record_event(self, *args: Any, **kwargs: Any) -> None:
+            self.event_calls += 1
+            if self.event_calls == 1:
+                raise RuntimeError("runtime event store unavailable")
 
         def unregister_process(self, pid: int) -> None:
             self.unregistered.append(pid)
@@ -217,7 +216,7 @@ def test_terminal_cleanup_survives_telemetry_failure_and_next_record_runs(
         terminated.append(pid)
         return watchdog.TerminationResult(f"terminated {script_name}", unregister=True)
 
-    database = TelemetryFailingDatabase()
+    store = EventFailingStore()
     stale_processes = [
         {
             "pid": 101,
@@ -234,8 +233,8 @@ def test_terminal_cleanup_survives_telemetry_failure_and_next_record_runs(
     ]
     monkeypatch.setattr(watchdog, "terminate_process", terminate)
 
-    watchdog.process_stale_records(cast(Any, database), stale_processes)
+    watchdog.process_stale_records(cast(Any, store), stale_processes)
 
     assert terminated == [101, 102]
-    assert database.unregistered == [101, 102]
-    assert database.telemetry_calls == 2
+    assert store.unregistered == [101, 102]
+    assert store.event_calls == 2
