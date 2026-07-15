@@ -56,6 +56,7 @@ EXPECTED_COLUMNS = {
         "identity_path",
         "hash",
         "byte_size",
+        "nonblank_lines",
     ),
     "nodes": (
         "id",

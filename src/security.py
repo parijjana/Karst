@@ -128,7 +128,25 @@ class PathSecurityPolicy:
         valid_extensions: set[str],
         ignored_directories: set[str],
     ) -> list[Path]:
+        tracked, _untracked = self.discover_project_inventory(
+            canonical_project_root, valid_extensions, ignored_directories
+        )
+        return tracked
+
+    def discover_project_inventory(
+        self,
+        canonical_project_root: Path,
+        valid_extensions: set[str],
+        ignored_directories: set[str],
+    ) -> tuple[list[Path], list[tuple[Path, str]]]:
+        """Classify the same safe traversal as tracked files or excluded paths.
+
+        Excluded directory roots are recorded without descending into them; this
+        keeps the inventory bounded while truthfully identifying intentional
+        non-tracked areas such as build output and caches.
+        """
         discovered: list[Path] = []
+        untracked: list[tuple[Path, str]] = []
 
         def fail_on_walk_error(error: OSError) -> None:
             raise SecurityViolation("path_unavailable") from error
@@ -147,6 +165,7 @@ class PathSecurityPolicy:
                     or name.startswith(".")
                     or _is_transient_generated_directory(name)
                 ):
+                    untracked.append((current / name, "folder"))
                     continue
                 candidate = current / name
                 if _is_reparse_point(candidate):
@@ -156,11 +175,14 @@ class PathSecurityPolicy:
             for name in file_names:
                 candidate = current / name
                 if candidate.suffix not in valid_extensions:
+                    if _is_reparse_point(candidate):
+                        raise SecurityViolation("link_not_allowed")
+                    untracked.append((candidate, "file"))
                     continue
                 discovered.append(
                     self.validate_project_file(candidate, canonical_project_root)
                 )
-        return discovered
+        return discovered, untracked
 
     @staticmethod
     def _absolute_lexical(supplied: str | Path, relative_base: Path | None) -> Path:

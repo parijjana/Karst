@@ -71,8 +71,8 @@ class IndexRepository:
                 raise ValueError("path escapes project root")
             try:
                 cur = self.database.conn.execute(
-                    "INSERT INTO files(project_id,generation_id,stable_id,path,relative_path,identity_path,hash,byte_size) VALUES(?,?,?,?,?,?,?,?)",
-                    (pid,generation_id,c.stable_file_id,str(absolute),c.relative_path,c.identity_path,snap.content_sha256,snap.byte_size),
+                "INSERT INTO files(project_id,generation_id,stable_id,path,relative_path,identity_path,hash,byte_size,nonblank_lines) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (pid,generation_id,c.stable_file_id,str(absolute),c.relative_path,c.identity_path,snap.content_sha256,snap.byte_size,_nonblank_lines(snap.content)),
                 )
             except sqlite3.IntegrityError as exc:
                 raise ValueError("file is already staged in this generation") from exc
@@ -89,6 +89,28 @@ class IndexRepository:
                 self._diagnostic(pid, generation_id, d)
 
     stage_file = stage
+
+    def stage_untracked_paths(
+        self, generation_id: int, paths: Iterable[tuple[str, str]]
+    ) -> None:
+        """Persist the bounded non-tracked inventory for one staging generation."""
+        with self.database.transaction():
+            row = self.database.conn.execute(
+                "SELECT project_id, status FROM index_generations WHERE id=?", (generation_id,)
+            ).fetchone()
+            if row is None or row[1] != "staging":
+                raise ValueError("generation is not staging")
+            values = [(int(row[0]), generation_id, path, kind) for path, kind in paths]
+            if any(kind not in {"file", "folder"} or not path for _project, _generation, path, kind in values):
+                raise ValueError("invalid untracked path")
+            self.database.conn.execute(
+                "DELETE FROM untracked_paths WHERE project_id=? AND generation_id=?",
+                (int(row[0]), generation_id),
+            )
+            self.database.conn.executemany(
+                "INSERT INTO untracked_paths(project_id,generation_id,relative_path,kind) VALUES(?,?,?,?)",
+                values,
+            )
 
     def stage_edges(self, generation_id: int, edges: Iterable[tuple[int, int, str]]) -> None:
         """Stage validated node-id edges; each edge is inserted atomically."""
@@ -182,7 +204,7 @@ class IndexRepository:
                 files = self.database.conn.execute("SELECT id,stable_id,path,relative_path,identity_path,hash,byte_size FROM files WHERE project_id=? AND generation_id=?", (active.project_id, active.id)).fetchall()
                 fmap: dict[int,int] = {}
                 for old, stable, path, rel, ident, digest, size in files:
-                    cur = self.database.conn.execute("INSERT INTO files(project_id,generation_id,stable_id,path,relative_path,identity_path,hash,byte_size) VALUES(?,?,?,?,?,?,?,?)", (active.project_id,new.id,stable,path,rel,ident,digest,size))
+                    cur = self.database.conn.execute("INSERT INTO files(project_id,generation_id,stable_id,path,relative_path,identity_path,hash,byte_size,nonblank_lines) SELECT project_id,?,stable_id,path,relative_path,identity_path,hash,byte_size,nonblank_lines FROM files WHERE id=?", (new.id,old))
                     fmap[int(old)] = int(cur.lastrowid or 0)
                 nodes = self.database.conn.execute("SELECT id,file_id,stable_id,language,type,name,qualified_name,signature,overload_discriminator,start_line,end_line FROM nodes WHERE project_id=? AND generation_id=?", (active.project_id,active.id)).fetchall()
                 nmap: dict[int,int] = {}
@@ -195,6 +217,8 @@ class IndexRepository:
                     self.database.conn.execute("INSERT INTO embeddings(project_id,generation_id,node_id,vector,content_hash,model_revision) VALUES(?,?,?,?,?,?)", (active.project_id,new.id,nmap[int(node_id)],vector,content_hash,model_revision))
                 for rel, severity, code, message, exc_type in self.database.conn.execute("SELECT relative_path,severity,code,message,exception_type FROM index_diagnostics WHERE project_id=? AND generation_id=?", (active.project_id,active.id)):
                     self.database.conn.execute("INSERT INTO index_diagnostics(project_id,generation_id,relative_path,severity,code,message,exception_type) VALUES(?,?,?,?,?,?,?)", (active.project_id,new.id,rel,severity,code,message,exc_type))
+                for path, kind in self.database.conn.execute("SELECT relative_path,kind FROM untracked_paths WHERE project_id=? AND generation_id=?", (active.project_id,active.id)):
+                    self.database.conn.execute("INSERT INTO untracked_paths(project_id,generation_id,relative_path,kind) VALUES(?,?,?,?)", (active.project_id,new.id,path,kind))
                 self.database.conn.execute("UPDATE index_generations SET discovered_files=?,indexed_files=?,symbol_count=?,edge_count=? WHERE id=?", (len(files),len(files),len(nodes),self.database.conn.execute("SELECT COUNT(*) FROM edges WHERE generation_id=?", (new.id,)).fetchone()[0],new.id))
                 self.database.conn.execute("UPDATE index_generations SET diagnostic_count=(SELECT COUNT(*) FROM index_diagnostics WHERE generation_id=?) WHERE id=?", (new.id,new.id))
         except Exception:
@@ -225,3 +249,7 @@ class IndexRepository:
 
 # Descriptive alias used by callers that treat generation lifecycle separately.
 GenerationRepository = IndexRepository
+
+
+def _nonblank_lines(content: bytes) -> int:
+    return sum(1 for line in content.decode("utf-8", errors="replace").splitlines() if line.strip())

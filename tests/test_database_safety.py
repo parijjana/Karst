@@ -58,7 +58,7 @@ def test_concurrent_initializers_serialize_and_validate_one_schema(
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = tuple(pool.map(lambda _item: initialize(), range(2)))
 
-    assert results == ((3, 3), (3, 3))
+    assert results == ((4, 4), (4, 4))
 
 
 def test_outer_commit_failure_rolls_back_and_resets_unit_of_work(

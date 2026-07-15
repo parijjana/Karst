@@ -59,7 +59,7 @@ def test_v2_populated_and_empty_projects_bootstrap_one_active_generation(
             "diagnostic_count FROM index_generations ORDER BY project_id"
         ).fetchall()
 
-        assert database.schema_version == 3
+        assert database.schema_version == 4
         assert len(generations) == 2
         assert tuple(generations[0][:5]) == (7, 1, "active", 0, None)
         assert tuple(generations[0][5:]) == (1, 1, 0, 0, 0, 0, 0, 2, 1, 0)
@@ -76,7 +76,7 @@ def test_empty_v2_database_upgrades_without_fabricating_generations(
     connection.close()
 
     with Database(path) as database:
-        assert database.schema_version == 3
+        assert database.schema_version == 4
         assert (
             database.conn.execute("SELECT COUNT(*) FROM index_generations").fetchone()[
                 0

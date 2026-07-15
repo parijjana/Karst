@@ -62,7 +62,10 @@ def test_read_routes_return_paginated_database_views_and_closed_connections(
         "tokens_saved": 10,
     }
     assert client.get("/api/projects").json()[0]["name"] == "demo"
-    assert client.get("/api/projects/1/files").json()[0]["hash"] == "hash"
+    file_row = client.get("/api/projects/1/files").json()[0]
+    assert file_row["hash"] == "hash"
+    assert file_row["path"] == "module.py"
+    assert file_row["nonblank_loc"] == 0
     assert len(client.get("/api/projects/1/nodes").json()) == 2
     assert len(client.get("/api/projects/1/telemetry").json()) == 2
     assert client.get("/api/projects/1/commits").json()[0]["commit_hash"] == "abc"

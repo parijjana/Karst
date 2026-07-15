@@ -7,6 +7,10 @@ from dataclasses import dataclass
 
 from src.karst_core.database.db_migration_steps import baseline, harden_schema
 from src.karst_core.database.db_migration_v3 import generation_schema
+from src.karst_core.database.db_migration_v4 import (
+    summary_schema,
+    validate_summary_schema_shape,
+)
 from src.karst_core.database.db_migration_support import SchemaUpgradeError, table_names
 from src.karst_core.database.db_schema import SCHEMA_MIGRATIONS_SQL
 from src.karst_core.database.db_schema_contract import SchemaShapeError
@@ -48,6 +52,12 @@ MIGRATIONS = (
         "add generation-scoped graph",
         generation_schema,
         "karst-generation-schema-v3-lossless-legacy-text-query-readiness-identity-path",
+    ),
+    Migration(
+        4,
+        "add mission control summary data",
+        summary_schema,
+        "karst-summary-nonblank-loc-untracked-path-inventory-v4",
     ),
 )
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1].version
@@ -145,7 +155,11 @@ def migrate(
             _record_migration(connection, active)
         _validate_ledger(connection, target, migrations)
         if migrations is MIGRATIONS:
-            validate_v3_schema_shape(connection)
+            validate_v3_schema_shape(
+                connection, summary_extension=target >= 4
+            )
+            if target >= 4:
+                validate_summary_schema_shape(connection)
         _validate_integrity(connection)
         connection.commit()
     except Exception as error:

@@ -10,7 +10,7 @@ from src.karst_core.database.db_migrations import MigrationError, migrate
 from tests.database_v2_generation_support import create_v2_database
 
 
-def test_v3_bootstrap_uses_no_filesystem_metadata_calls(
+def test_v4_bootstrap_uses_no_filesystem_metadata_calls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "lexical-only.db"
@@ -23,7 +23,7 @@ def test_v3_bootstrap_uses_no_filesystem_metadata_calls(
     for method in ("resolve", "absolute", "exists", "is_file", "is_dir", "stat"):
         monkeypatch.setattr(Path, method, forbidden)
 
-    assert migrate(connection) == 3
+    assert migrate(connection) == 4
     connection.close()
 
 

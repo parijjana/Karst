@@ -22,18 +22,24 @@ from src.karst_core.database.db_schema_v3_expectations import (
 )
 
 
-def validate_v3_schema_shape(connection: sqlite3.Connection) -> None:
+def validate_v3_schema_shape(
+    connection: sqlite3.Connection, *, summary_extension: bool = False
+) -> None:
     validate_schema_shape(connection, excluded_tables=V3_TABLES)
     available = table_names(connection)
     for table, expected_columns in EXPECTED_COLUMNS.items():
         if table not in available:
             raise SchemaShapeError(f"Current schema shape is missing table {table}.")
         table_info = connection.execute(f"PRAGMA table_info({table})").fetchall()
-        if tuple(str(row[1]) for row in table_info) != expected_columns:
+        actual_columns = tuple(str(row[1]) for row in table_info)
+        if table == "files" and summary_extension:
+            expected_columns = expected_columns + ("nonblank_lines",)
+        if actual_columns != expected_columns:
             raise SchemaShapeError(f"Current schema shape for {table} is invalid.")
-        if {str(row[1]) for row in table_info if bool(row[3])} != EXPECTED_NOT_NULL[
-            table
-        ]:
+        expected_not_null = EXPECTED_NOT_NULL[table]
+        if table == "files" and summary_extension:
+            expected_not_null = expected_not_null | {"nonblank_lines"}
+        if {str(row[1]) for row in table_info if bool(row[3])} != expected_not_null:
             raise SchemaShapeError(
                 f"Current schema nullability for {table} is invalid."
             )
@@ -60,9 +66,9 @@ def validate_v3_schema_shape(connection: sqlite3.Connection) -> None:
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
         ).fetchone()
         actual = "" if definition is None else str(definition[0] or "")
-        if _normalize_schema_sql(actual) != _normalize_schema_sql(
-            V3_MANAGED_TABLE_SQL[table]
-        ):
+        if table == "files" and summary_extension:
+            continue
+        if _normalize_schema_sql(actual) != _normalize_schema_sql(V3_MANAGED_TABLE_SQL[table]):
             raise SchemaShapeError(
                 f"Current schema table definition for {table} is invalid."
             )

@@ -8,6 +8,7 @@ from typing import Annotated, Iterator
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from src.settings import Settings
+from src.karst_core.summary import ProjectSummaryService
 from src.web_auth import request_settings
 
 
@@ -83,14 +84,7 @@ async def get_projects(
 ) -> list[dict[str, object]]:
     configured = request_settings(request)
     limit, offset = page_bounds(configured, limit, offset)
-    if not configured.db_path.exists():
-        return []
-    with get_db(configured.db_path) as connection:
-        rows = connection.execute(
-            "SELECT id, name, path FROM projects ORDER BY id LIMIT ? OFFSET ?",
-            (limit, offset),
-        ).fetchall()
-        return [dict(row) for row in rows]
+    return ProjectSummaryService(configured.db_path).projects(limit, offset)
 
 
 @router.get("/api/projects/{project_id}/files")
@@ -102,17 +96,7 @@ async def get_project_files(
 ) -> list[dict[str, object]]:
     configured = request_settings(request)
     limit, offset = page_bounds(configured, limit, offset)
-    if not configured.db_path.exists():
-        return []
-    with get_db(configured.db_path) as connection:
-        rows = connection.execute(
-            """
-            SELECT id, path, hash FROM files
-            WHERE project_id = ? ORDER BY id LIMIT ? OFFSET ?
-            """,
-            (project_id, limit, offset),
-        ).fetchall()
-        return [dict(row) for row in rows]
+    return ProjectSummaryService(configured.db_path).files(project_id, limit, offset)
 
 
 @router.get("/api/projects/{project_id}/nodes")

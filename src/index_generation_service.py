@@ -64,6 +64,7 @@ class IncrementalIndexService:
                     if active is not None and active.query_ready
                     else repo.admit(project)
                 )
+                repo.stage_untracked_paths(generation.id, discovery.untracked_paths)
                 parser = self.parser_factory()
                 by_path = {s.candidate.relative_path: s for s in discovery.snapshots}
                 diagnostics: list[IndexDiagnostic] = [

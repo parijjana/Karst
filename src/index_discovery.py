@@ -30,6 +30,7 @@ class DiscoveryLimits:
 @dataclass(frozen=True, slots=True)
 class DiscoveryResult:
     snapshots: tuple[SourceSnapshot, ...]
+    untracked_paths: tuple[tuple[str, str], ...] = ()
     diagnostics: tuple[str, ...] = ()
 
 
@@ -48,7 +49,7 @@ def discover_snapshots(
     root = policy.validate_project_root(project_root)
     ext = {e if e.startswith(".") else f".{e}" for e in extensions}
     ignored = set(ignored_directories)
-    paths = policy.discover_project_files(root, ext, ignored)
+    paths, untracked = policy.discover_project_inventory(root, ext, ignored)
     paths = sorted(paths, key=lambda p: p.relative_to(root).as_posix())
     if len(paths) > bound.max_files or len(paths) > bound.max_update_files:
         raise SecurityViolation("index_budget_exceeded")
@@ -72,7 +73,11 @@ def discover_snapshots(
         if total > bound.max_total_bytes:
             raise SecurityViolation("index_budget_exceeded")
         snapshots.append(SourceSnapshot(candidate, content))
-    return DiscoveryResult(tuple(snapshots))
+    inventory = tuple(
+        (path.relative_to(root).as_posix(), kind)
+        for path, kind in sorted(untracked, key=lambda entry: entry[0].relative_to(root).as_posix())
+    )
+    return DiscoveryResult(tuple(snapshots), inventory)
 
 
 discover = discover_snapshots
