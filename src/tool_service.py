@@ -14,13 +14,13 @@ from src.security import (
     validate_registered_project,
     validate_project_name,
 )
-from src.settings import Settings
+from src.core_settings import CoreSettings
 
 
 class GraphToolService:
     def __init__(
         self,
-        configuration: Settings,
+        configuration: CoreSettings,
         database_factory: Callable[[], Database],
     ) -> None:
         self._settings = configuration

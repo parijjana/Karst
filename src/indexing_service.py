@@ -18,7 +18,7 @@ from src.security import (
     validate_registered_project,
     validate_project_name,
 )
-from src.settings import Settings, TRUSTED_LOCAL_OWNER
+from src.core_settings import CoreSettings, TRUSTED_LOCAL_OWNER
 
 
 SUPPORTED_EXTENSIONS = frozenset({".py", ".js", ".ts", ".dart", ".md"})
@@ -30,7 +30,7 @@ IGNORED_DIRECTORIES = frozenset(
 class ProjectIndexService:
     def __init__(
         self,
-        configuration: Settings,
+        configuration: CoreSettings,
         database_factory: Callable[[], Database],
         parser_factory: Callable[[], CodeParser] = CodeParser,
     ) -> None:

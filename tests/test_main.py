@@ -44,7 +44,7 @@ def test_legacy_relative_path_database_requires_explicit_rebuild(
         project_root="legacy/project",
         file_path="legacy/project/a.py",
     )
-    monkeypatch.setattr(main, "settings", configuration)
+    monkeypatch.setattr(main, "core_settings", configuration)
 
     with pytest.raises(DatabaseMigrationRecoveryRequired, match="No data was deleted"):
         main.query_symbol("missing", "name")
@@ -65,7 +65,7 @@ def test_legacy_relative_path_database_requires_explicit_rebuild(
 def test_list_symbols_missing_project_uses_v1_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(main, "settings", configured_settings(tmp_path))
+    monkeypatch.setattr(main, "core_settings", configured_settings(tmp_path))
     payload = json.loads(main.list_symbols("missing"))
     assert payload["schema_version"] == "v1"
     assert payload["status"] == "error"
@@ -76,7 +76,7 @@ def test_list_symbols_invalid_limit_uses_v1_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configuration = configured_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", configuration)
+    monkeypatch.setattr(main, "core_settings", configuration)
     main.index_project("demo", str(tmp_path))
     payload = json.loads(main.list_symbols("demo", limit=0))
     assert payload["schema_version"] == "v1"
@@ -92,7 +92,7 @@ def test_mcp_index_and_update_promote_query_ready_generations(
     source = project / "module.py"
     source.write_text("def first_symbol():\n    return 1\n", encoding="utf-8")
     configuration = configured_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", configuration)
+    monkeypatch.setattr(main, "core_settings", configuration)
 
     assert main.index_project("demo", str(project)).startswith("Indexed 1 files")
     listed = json.loads(main.list_symbols("demo", name="first_symbol"))
@@ -123,7 +123,7 @@ def test_mcp_index_replaces_populated_legacy_nonready_generation(
     project.mkdir()
     contents = b"def legacy_symbol():\n    return 1\n"
     configuration = configured_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", configuration)
+    monkeypatch.setattr(main, "core_settings", configuration)
 
     with main.get_db(configuration) as database:
         project_id = seed_populated_legacy_generation(
@@ -157,7 +157,7 @@ def test_mcp_index_rebuilds_populated_legacy_nonready_generation(
         "second.py": b"def second_symbol():\n    return 2\n",
     }
     configuration = configured_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", configuration)
+    monkeypatch.setattr(main, "core_settings", configuration)
 
     with main.get_db(configuration) as database:
         project_id = seed_populated_legacy_generation(
@@ -201,7 +201,7 @@ def test_symbol_outline_dependency_and_commit_tools(
         encoding="utf-8",
     )
     configuration = configured_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", configuration)
+    monkeypatch.setattr(main, "core_settings", configuration)
     assert main.index_project("demo", str(project)).startswith("Indexed 1 files")
 
     with closing(sqlite3.connect(configuration.db_path)) as connection:
@@ -241,7 +241,7 @@ def test_tool_errors_close_connections_and_remain_transport_safe(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     configuration = configured_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", configuration)
+    monkeypatch.setattr(main, "core_settings", configuration)
 
     assert main.query_symbol("missing", "name") == "Project not found."
     assert main.get_file_outline("missing", "missing.py") == "Project not found."
@@ -260,7 +260,7 @@ def test_backfill_and_semantic_adapters_use_validated_project(
     project.mkdir()
     (project / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
     configuration = configured_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", configuration)
+    monkeypatch.setattr(main, "core_settings", configuration)
     assert main.index_project("demo", str(project)).startswith("Indexed")
     observed: dict[str, object] = {}
 

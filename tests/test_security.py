@@ -81,7 +81,7 @@ def test_rejected_cross_project_update_does_not_mutate_database(
     first_file.write_text("def first():\n    pass\n", encoding="utf-8")
     second_file.write_text("def second():\n    pass\n", encoding="utf-8")
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", settings)
+    monkeypatch.setattr(main, "core_settings", settings)
 
     assert main.index_project("first", str(first)).startswith("Indexed")
     assert main.index_project("second", str(second)).startswith("Indexed")
@@ -126,7 +126,7 @@ def test_legacy_project_is_quarantined_before_reindex_deletion(
     source = project / "source.py"
     source.write_text("VALUE = 1\n", encoding="utf-8")
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", settings)
+    monkeypatch.setattr(main, "core_settings", settings)
     db = main.get_db(settings)
     if legacy_kind == "relative_path":
         stored_path = "."
@@ -193,7 +193,7 @@ def test_outside_root_and_link_reindex_fail_before_existing_data_is_cleared(
     outside_source = outside / "outside.py"
     outside_source.write_text("SECRET = True\n", encoding="utf-8")
     settings = make_settings(tmp_path, allowed_roots=(allowed,))
-    monkeypatch.setattr(main, "settings", settings)
+    monkeypatch.setattr(main, "core_settings", settings)
     assert main.index_project("stable", str(project)).startswith("Indexed")
 
     with closing(sqlite3.connect(settings.db_path)) as conn:
@@ -226,7 +226,7 @@ def test_index_result_reports_typed_parser_failures(
     project.mkdir()
     (project / "broken.py").write_text("def broken(:\n", encoding="utf-8")
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", settings)
+    monkeypatch.setattr(main, "core_settings", settings)
 
     result = main.index_project("broken", str(project))
 
@@ -247,7 +247,7 @@ def test_git_backfill_rejects_untrusted_registered_project_before_subprocess(
     project = tmp_path / "project"
     project.mkdir()
     settings = make_settings(tmp_path)
-    monkeypatch.setattr(main, "settings", settings)
+    monkeypatch.setattr(main, "core_settings", settings)
     stored_path = str(project)
     stored_owner = TRUSTED_LOCAL_OWNER
     stored_identity: str | None = stable_project_id(project)

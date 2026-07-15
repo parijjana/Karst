@@ -15,7 +15,7 @@ from src.query_cursor import SymbolFilters, SymbolPageCursorCodec
 from src.query_service import QueryService
 from src.query_models import ApiError, QueryErrorCode, SymbolPageError
 from src.symbol_repository import SymbolRepository
-from src.settings import Settings, settings
+from src.core_settings import CoreSettings, core_settings
 from src.tool_service import GraphToolService
 
 
@@ -42,8 +42,8 @@ __all__ = [
 ]
 
 
-def get_db(configuration: Settings | None = None) -> Database:
-    active_settings = configuration or settings
+def get_db(configuration: CoreSettings | None = None) -> Database:
+    active_settings = configuration or core_settings
     active_settings.data_dir.mkdir(parents=True, exist_ok=True)
     return Database(str(active_settings.db_path))
 
@@ -53,11 +53,11 @@ def _database_factory() -> Database:
 
 
 def _index_service() -> ProjectIndexService:
-    return ProjectIndexService(settings, _database_factory, CodeParser)
+    return ProjectIndexService(core_settings, _database_factory, CodeParser)
 
 
 def _tool_service() -> GraphToolService:
-    return GraphToolService(settings, _database_factory)
+    return GraphToolService(core_settings, _database_factory)
 
 
 def _query_service(
@@ -119,7 +119,7 @@ def rebuild_database(confirmation: str) -> str:
             "continue."
         )
     try:
-        database = Database.rebuild_blocked_legacy_database(settings.db_path)
+        database = Database.rebuild_blocked_legacy_database(core_settings.db_path)
     except ValueError as error:
         return f"Rebuild rejected. {error}"
     database.close()

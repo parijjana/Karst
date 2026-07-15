@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Iterable
 
-from src.settings import TRUSTED_LOCAL_OWNER
+from src.core_settings import TRUSTED_LOCAL_OWNER
 
 
 _PROJECT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")

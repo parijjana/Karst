@@ -8,20 +8,16 @@ from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlsplit
 
+from src.core_settings import (
+    PROJECT_ROOT,
+    TRUSTED_LOCAL_OWNER,
+    CoreSettings,
+    SettingsError,
+    absolute_from_project as _absolute_from_project,
+)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-TRUSTED_LOCAL_OWNER = "local-stdio"
 
-
-class SettingsError(ValueError):
-    """Raised when Karst cannot start with a safe configuration."""
-
-
-def _absolute_from_project(value: str | Path) -> Path:
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
-    return path.resolve(strict=False)
+__all__ = ["PROJECT_ROOT", "TRUSTED_LOCAL_OWNER", "Settings", "SettingsError", "settings"]
 
 
 def _split_values(value: str, separator: str = ",") -> tuple[str, ...]:
@@ -64,7 +60,7 @@ def _validate_tls_pair(certificate: Path, private_key: Path) -> None:
 
 
 @dataclass(frozen=True, slots=True)
-class Settings:
+class Settings(CoreSettings):
     """Configuration for one mutually trusted local stdio deployment.
 
     The current launcher supplies no authenticated per-client identity. All MCP
@@ -93,19 +89,7 @@ class Settings:
     tls_keyfile: Path | None = None
 
     def __post_init__(self) -> None:
-        data_dir = _absolute_from_project(self.data_dir)
-        db_path = _absolute_from_project(self.db_path)
-        canonical_roots: list[Path] = []
-        for root in self.allowed_roots:
-            candidate = _absolute_from_project(root)
-            if not candidate.is_dir():
-                raise SettingsError("An allowed root is unavailable.")
-            canonical = candidate.resolve(strict=True)
-            if canonical not in canonical_roots:
-                canonical_roots.append(canonical)
-
-        if not canonical_roots:
-            raise SettingsError("At least one allowed root is required.")
+        CoreSettings.__post_init__(self)
         if not 1 <= self.dashboard_port <= 65535:
             raise SettingsError("Dashboard port is invalid.")
         if not self.allowed_hosts or any(
@@ -165,9 +149,6 @@ class Settings:
         if not 1 <= self.dashboard_max_page_size <= 500:
             raise SettingsError("Dashboard maximum page size is invalid.")
 
-        object.__setattr__(self, "data_dir", data_dir)
-        object.__setattr__(self, "db_path", db_path)
-        object.__setattr__(self, "allowed_roots", tuple(canonical_roots))
         object.__setattr__(self, "tls_certfile", tls_certfile)
         object.__setattr__(self, "tls_keyfile", tls_keyfile)
 
@@ -178,24 +159,7 @@ class Settings:
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
         source = os.environ if env is None else env
-        if "KARST_OWNER_ID" in source:
-            raise SettingsError(
-                "Karst supports one trusted local stdio domain; client owners are unsupported."
-            )
-        data_dir = _absolute_from_project(source.get("KARST_DATA_DIR", "data"))
-        db_path = _absolute_from_project(
-            source.get("KARST_DB_PATH", str(data_dir / "knowledge_graph.db"))
-        )
-        raw_roots = source.get("KARST_ALLOWED_ROOTS")
-        allowed_roots = (
-            tuple(
-                _absolute_from_project(item.strip())
-                for item in raw_roots.split(os.pathsep)
-                if item.strip()
-            )
-            if raw_roots
-            else (PROJECT_ROOT,)
-        )
+        core = CoreSettings.from_env(source)
         host = source.get("KARST_DASHBOARD_HOST", "127.0.0.1").strip()
         port_text = source.get("KARST_DASHBOARD_PORT", "8085")
         port = _parse_int(port_text, "Dashboard port is invalid.")
@@ -219,9 +183,9 @@ class Settings:
         csrf_token = source.get("KARST_CSRF_TOKEN") or None
 
         return cls(
-            data_dir=data_dir,
-            db_path=db_path,
-            allowed_roots=allowed_roots,
+            data_dir=core.data_dir,
+            db_path=core.db_path,
+            allowed_roots=core.allowed_roots,
             dashboard_host=host,
             dashboard_port=port,
             allowed_hosts=allowed_hosts,

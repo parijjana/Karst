@@ -5,7 +5,7 @@ from contextlib import contextmanager
 
 from src.database import Database
 from src.security import SecurityViolation, security_error, validate_project_name
-from src.settings import TRUSTED_LOCAL_OWNER
+from src.core_settings import TRUSTED_LOCAL_OWNER
 
 
 @contextmanager

@@ -23,7 +23,7 @@ def test_reindexer_uses_configured_database_identity_and_parse_outcomes(
         db_path=tmp_path / "data" / "karst.db",
         allowed_roots=(tmp_path,),
     )
-    monkeypatch.setattr(main, "settings", settings)
+    monkeypatch.setattr(main, "core_settings", settings)
     first_result = main.index_project("project", str(project))
     assert "failed 1" in first_result
     monkeypatch.chdir(elsewhere)

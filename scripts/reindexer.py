@@ -13,7 +13,7 @@ from src.security import (
     stable_project_id,
     validate_registered_project,
 )
-from src.settings import Settings, TRUSTED_LOCAL_OWNER, settings
+from src.core_settings import CoreSettings, TRUSTED_LOCAL_OWNER, core_settings
 
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class ReindexReport:
     security_code: str | None = None
 
 
-def reindex_projects(configuration: Settings = settings) -> tuple[ReindexReport, ...]:
+def reindex_projects(configuration: CoreSettings = core_settings) -> tuple[ReindexReport, ...]:
     """Reindex trusted projects from the canonical Karst database."""
     configuration.data_dir.mkdir(parents=True, exist_ok=True)
     database = Database(str(configuration.db_path))

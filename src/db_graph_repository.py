@@ -11,7 +11,7 @@ from src.db_generation_identity import (
     infer_language,
 )
 from src.db_transaction import TransactionRepositoryMixin
-from src.settings import TRUSTED_LOCAL_OWNER
+from src.core_settings import TRUSTED_LOCAL_OWNER
 
 
 @dataclass(frozen=True, slots=True)

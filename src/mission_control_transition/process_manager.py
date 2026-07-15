@@ -7,7 +7,10 @@ import subprocess
 from functools import partial
 from typing import BinaryIO
 
-from src.settings import PROJECT_ROOT
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 ALLOWED_SCRIPTS = {

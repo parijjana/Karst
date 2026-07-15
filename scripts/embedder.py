@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.database import Database
-from src.settings import settings
+from src.core_settings import core_settings
 
 
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
@@ -78,8 +78,8 @@ def get_embed_model():
 
 
 def main() -> None:
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    with Database(settings.db_path) as database:
+    core_settings.data_dir.mkdir(parents=True, exist_ok=True)
+    with Database(core_settings.db_path) as database:
         nodes_to_embed = pending_node_ids(database)
         if not nodes_to_embed:
             return
