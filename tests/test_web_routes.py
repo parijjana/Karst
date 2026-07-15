@@ -46,6 +46,15 @@ def seed_database(settings: Settings, tmp_path: Path) -> None:
         database.log_commit(
             project_id, "abc", "message", [{"path": "module.py", "status": "M"}]
         )
+        generation_id = int(
+            database.conn.execute(
+                "SELECT id FROM index_generations WHERE project_id=?", (project_id,)
+            ).fetchone()[0]
+        )
+        database.conn.execute(
+            "UPDATE index_generations SET query_ready=1, manifest_sha256=? WHERE id=?",
+            ("a" * 64, generation_id),
+        )
 
 
 def test_read_routes_return_paginated_database_views_and_closed_connections(
@@ -74,11 +83,15 @@ def test_read_routes_return_paginated_database_views_and_closed_connections(
 
     graph = client.get("/api/graph?project_id=1").json()
     node_ids = {node["id"] for node in graph["nodes"]}
-    assert {"project_1", "file_1", "node_1", "node_2"} <= node_ids
+    assert "karst" in node_ids
+    assert {"project", "file", "code_dot"} <= {
+        node["type"] for node in graph["nodes"]
+    }
     assert all(
         link["source"] in node_ids and link["target"] in node_ids
         for link in graph["links"]
     )
+    assert "get_db" not in Path("src/web_graph.py").read_text(encoding="utf-8")
 
     with closing(sqlite3.connect(settings.db_path)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 1
