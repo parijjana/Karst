@@ -78,7 +78,7 @@ __all__ = [
 ]
 
 
-DASHBOARD_SCRIPT_HASH = "NPr0YoQpJuSh34lfLv8mNHBPsjKhuUYNTZ3wuZ9yFhU="
+DASHBOARD_SCRIPT_HASH = "je+UVOg2g5L73FI7yOjrNlcTsA73heaXOcBsu7Ewc0g="
 DASHBOARD_CSP = (
     "default-src 'none'; "
     f"script-src 'sha256-{DASHBOARD_SCRIPT_HASH}'; "

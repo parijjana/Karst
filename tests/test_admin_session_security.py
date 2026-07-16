@@ -236,7 +236,7 @@ def test_security_headers_are_exact_on_html_and_error_responses(
     client = TestClient(create_app(make_settings(tmp_path)), base_url=ORIGIN)
     expected_csp = (
         "default-src 'none'; "
-        "script-src 'sha256-NPr0YoQpJuSh34lfLv8mNHBPsjKhuUYNTZ3wuZ9yFhU='; "
+        "script-src 'sha256-je+UVOg2g5L73FI7yOjrNlcTsA73heaXOcBsu7Ewc0g='; "
         "style-src 'unsafe-inline'; "
         "connect-src 'self'; "
         "img-src 'self' data:; "

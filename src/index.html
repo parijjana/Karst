@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-NPr0YoQpJuSh34lfLv8mNHBPsjKhuUYNTZ3wuZ9yFhU='; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; manifest-src 'none'; worker-src 'none'; media-src 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-je+UVOg2g5L73FI7yOjrNlcTsA73heaXOcBsu7Ewc0g='; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; manifest-src 'none'; worker-src 'none'; media-src 'none'">
     <title>Karst</title>
     <style>
         :root {
@@ -208,38 +208,18 @@
         #graph-container, #charts-container { min-height: 0; flex: 1; overflow: auto; padding: 20px; }
         #graph-toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
         #graph-summary { color: var(--muted-color); }
-        #graph-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-            gap: 10px;
-            margin-top: 16px;
-        }
         #graph-canvas {
             display: block;
             width: 100%;
-            height: 300px;
+            height: min(62vh, 620px);
             margin-top: 16px;
             border: 1px solid var(--border-color);
             border-radius: 8px;
             background: radial-gradient(circle at center, rgba(30,41,59,.8), rgba(15,23,42,.95));
-            cursor: grab;
+            cursor: crosshair;
         }
-        #graph-canvas:active { cursor: grabbing; }
-        .graph-node {
-            display: flex;
-            align-items: flex-start;
-            gap: 9px;
-            width: 100%;
-            min-height: 58px;
-            padding: 10px;
-            border: 1px solid var(--border-color);
-            border-radius: 7px;
-            background: rgba(30, 41, 59, 0.55);
-            color: var(--text-color);
-            text-align: left;
-        }
-        button.graph-node { cursor: pointer; }
-        button.graph-node:hover { border-color: var(--accent-cyan); }
+        #graph-detail { min-height: 1.4em; margin: 10px 0 0; color: var(--muted-color); }
+        #graph-detail strong { color: var(--text-color); }
         .graph-dot { width: 11px; height: 11px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
         .graph-dot-project { background: var(--danger); }
         .graph-dot-folder { background: var(--accent-violet); }
@@ -367,8 +347,8 @@
                     <span id="graph-summary">Loading graph...</span>
                     <button class="button button-secondary" id="graph-reset" type="button">Refresh graph</button>
                 </div>
-                <canvas id="graph-canvas" width="900" height="300" aria-label="Interactive knowledge graph visualization"></canvas>
-                <div id="graph-list"></div>
+                <canvas id="graph-canvas" width="1200" height="620" aria-label="Progressive structural graph visualization"></canvas>
+                <p id="graph-detail" aria-live="polite">Hover a file or folder for its summary. Select a folder to step inside its translucent context.</p>
                 <div class="legend" aria-label="Node type legend">
                     <span class="legend-item"><span class="graph-dot graph-dot-folder"></span>Folders</span>
                     <span class="legend-item"><span class="graph-dot graph-dot-file"></span>Files</span>
@@ -393,7 +373,6 @@
         const REQUEST_TIMEOUT_MS = 10000;
         const MAX_TABLE_ROWS = 100;
         const MAX_TABLE_COLUMNS = 24;
-        const MAX_GRAPH_NODES = 250;
         const SCRIPT_NAMES = Object.freeze([
             'watchdog',
             'reindexer',
@@ -405,6 +384,9 @@
         const SCRIPT_ACTIONS = Object.freeze(['start', 'stop']);
         const DETAIL_TABS = Object.freeze(['files', 'nodes', 'telemetry', 'commits']);
         const projectsMap = new Map();
+        let graphData = { nodes: [], links: [] };
+        let graphFocusId = null;
+        let graphHitTargets = [];
         let currentProjectId = null;
         let adminCsrfToken = null;
         let adminMutationPromise = null;
@@ -562,7 +544,7 @@
                 const projects = Array.isArray(response) ? response : [];
                 projectsMap.clear();
                 projects.forEach((project) => {
-                    projectsMap.set(project.id, asText(project.name));
+                    projectsMap.set(project.id, project);
                 });
                 if (projects.length === 0) {
                     renderMessage(container, 'No indexed repositories are available.');
@@ -570,8 +552,12 @@
                 }
                 const table = createTable(
                     [
-                        { key: 'name', label: 'Name' },
-                        { key: 'path', label: 'Path', format: baseName }
+                        { key: 'name', label: 'Project' },
+                        { key: 'tracked_file_count', label: 'Tracked files' },
+                        { key: 'nonblank_loc_total', label: 'Non-blank LOC' },
+                        { key: 'untracked_file_count', label: 'Untracked files' },
+                        { key: 'untracked_folder_count', label: 'Untracked folders' },
+                        { key: 'discovered_not_indexed_count', label: 'Not indexed' }
                     ],
                     projects,
                     (project) => loadProject(project.id, project.name)
@@ -598,21 +584,25 @@
             renderMessage(content, 'Loading...');
             try {
                 const projectId = encodeURIComponent(String(currentProjectId));
-                const response = await fetchJSON(
-                    `/api/projects/${projectId}/${tabName}?limit=${MAX_TABLE_ROWS}&offset=0`
-                );
+                const project = projectsMap.get(currentProjectId) || {};
+                if (tabName === 'nodes') {
+                    renderNodeTypeSummary(content, project.node_counts_by_type);
+                    return;
+                }
+                const response = await fetchJSON(`/api/projects/${projectId}/${tabName}?limit=${MAX_TABLE_ROWS}&offset=0`);
                 const rows = Array.isArray(response) ? response : [];
                 if (rows.length === 0) {
                     renderMessage(content, 'No data available.');
                     return;
                 }
-                const hiddenKeys = new Set(['id', 'project_id', 'file_id']);
-                const columns = Object.keys(rows[0])
-                    .filter((key) => !hiddenKeys.has(key))
-                    .map((key) => ({
-                        key,
-                        label: key.replaceAll('_', ' ').toUpperCase()
-                    }));
+                const columns = tabName === 'files'
+                    ? [
+                        { key: 'path', label: 'Tracked file' },
+                        { key: 'nonblank_loc', label: 'Non-blank LOC' }
+                    ]
+                    : Object.keys(rows[0])
+                        .filter((key) => !new Set(['id', 'project_id', 'file_id']).has(key))
+                        .map((key) => ({ key, label: key.replaceAll('_', ' ').toUpperCase() }));
                 content.replaceChildren(createTable(columns, rows));
             } catch (error) {
                 console.error('Failed to load repository details', error);
@@ -625,123 +615,199 @@
             setText('dd-project-name', name);
             byId('drill-down-panel').hidden = false;
             byId('projects-panel').hidden = true;
-            await Promise.all([showDetailTab('files'), loadGraph()]);
+            await showDetailTab('files');
         }
 
         async function resetView() {
             currentProjectId = null;
             byId('drill-down-panel').hidden = true;
             byId('projects-panel').hidden = false;
-            await loadGraph();
+            graphFocusId = null;
+            renderStructuralGraph();
         }
 
-        function graphDotClass(nodeType) {
-            const knownTypes = new Set(['project', 'folder', 'file', 'class', 'function']);
-            return knownTypes.has(nodeType) ? `graph-dot-${nodeType}` : 'graph-dot-default';
+        function renderNodeTypeSummary(container, counts) {
+            const entries = Object.entries(counts && typeof counts === 'object' ? counts : {});
+            if (entries.length === 0) {
+                renderMessage(container, 'No indexed node types are available.');
+                return;
+            }
+            const rows = entries.sort(([left], [right]) => left.localeCompare(right)).map(([type, count]) => ({ type, count }));
+            container.replaceChildren(createTable([
+                { key: 'type', label: 'Node type' },
+                { key: 'count', label: 'Count' }
+            ], rows));
         }
 
-        function drawGraphCanvas(nodes, links) {
+        function nodeColor(nodeType) {
+            const colors = { class: '#f59e0b', function: '#10b981', method: '#06b6d4', module: '#a78bfa', heading: '#fb7185' };
+            return colors[asText(nodeType).toLowerCase()] || '#94a3b8';
+        }
+
+        function structuralNodes(nodes) {
+            return nodes.filter((node) => node.type !== 'code_dot');
+        }
+
+        function isFocusedNode(node) {
+            if (graphFocusId === null) return true;
+            return node.id === graphFocusId || (Array.isArray(node.ancestor_ids) && node.ancestor_ids.includes(graphFocusId)) || node.parent_id === graphFocusId;
+        }
+
+        function graphNodeRadius(node) {
+            if (node.type === 'karst') return 15;
+            const weight = Math.max(0, safeNumber(node.weight));
+            return Math.max(node.type === 'file' ? 4 : 6, Math.min(24, 5 + Math.sqrt(weight) * 1.5));
+        }
+
+        function layoutStructuralNodes(nodes, width, height) {
+            const positions = new Map();
+            const visible = structuralNodes(nodes);
+            const root = visible.find((node) => node.type === 'karst');
+            if (!root) return positions;
+            const focused = graphFocusId === null ? root.id : graphFocusId;
+            const focal = visible.find((node) => node.id === focused) || root;
+            const cx = width / 2;
+            const cy = height / 2;
+            positions.set(root.id, { x: graphFocusId === null ? cx : 92, y: 74 });
+            if (focal.id !== root.id) positions.set(focal.id, { x: cx, y: cy });
+            const byParent = new Map();
+            visible.forEach((node) => {
+                if (!node.parent_id && node.type !== 'project') return;
+                const parent = node.parent_id || 'karst';
+                if (!byParent.has(parent)) byParent.set(parent, []);
+                byParent.get(parent).push(node);
+            });
+            const placeChildren = (parentId, center, radius, depth) => {
+                const children = byParent.get(parentId) || [];
+                children.forEach((node, index) => {
+                    if (positions.has(node.id)) return;
+                    const angle = (Math.PI * 2 * index / Math.max(1, children.length)) - Math.PI / 2;
+                    const r = Math.max(28, radius - depth * 17);
+                    positions.set(node.id, { x: center.x + Math.cos(angle) * r, y: center.y + Math.sin(angle) * r });
+                    const nodeCenter = positions.get(node.id);
+                    placeChildren(node.id, nodeCenter, Math.max(42, r * 0.56), depth + 1);
+                });
+            };
+            if (graphFocusId === null) {
+                placeChildren(root.id, { x: cx, y: cy }, Math.min(width, height) * 0.36, 0);
+            } else {
+                placeChildren(focal.id, { x: cx, y: cy }, Math.min(width, height) * 0.36, 0);
+                const context = visible.filter((node) => !positions.has(node.id));
+                context.forEach((node, index) => {
+                    const angle = Math.PI * 2 * index / Math.max(1, context.length);
+                    positions.set(node.id, { x: cx + Math.cos(angle) * (Math.min(width, height) * 0.45), y: cy + Math.sin(angle) * (Math.min(width, height) * 0.45) });
+                });
+            }
+            return positions;
+        }
+
+        function drawStructuralGraph(nodes, links) {
             const canvas = byId('graph-canvas');
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
             const width = canvas.width;
             const height = canvas.height;
             ctx.clearRect(0, 0, width, height);
-            const visible = nodes.slice(0, MAX_GRAPH_NODES);
-            const positions = new Map();
-            const cx = width / 2;
-            const cy = height / 2;
-            const radius = Math.max(55, Math.min(width, height) * 0.38);
-            visible.forEach((node, index) => {
-                const angle = visible.length === 1 ? 0 : (Math.PI * 2 * index / visible.length) - Math.PI / 2;
-                positions.set(String(node.id), { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius });
-            });
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = 'rgba(148,163,184,.45)';
-            links.forEach((link) => {
-                const source = positions.get(String(link.source ?? link.from));
-                const target = positions.get(String(link.target ?? link.to));
+            const positions = layoutStructuralNodes(nodes, width, height);
+            const nodeById = new Map(nodes.map((node) => [node.id, node]));
+            const focusedPosition = graphFocusId === null ? null : positions.get(graphFocusId);
+            if (focusedPosition) {
+                ctx.fillStyle = 'rgba(6,182,212,.055)';
+                ctx.strokeStyle = 'rgba(6,182,212,.34)';
+                ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(focusedPosition.x, focusedPosition.y, Math.min(width, height) * .39, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            }
+            links.filter((link) => link.type !== 'code_node').forEach((link) => {
+                const source = positions.get(link.source);
+                const target = positions.get(link.target);
                 if (!source || !target) return;
+                const sourceNode = nodeById.get(link.source);
+                const targetNode = nodeById.get(link.target);
+                const faded = graphFocusId !== null && (!isFocusedNode(sourceNode) || !isFocusedNode(targetNode));
+                ctx.lineWidth = link.type === 'code_node' ? 1 : 1.25;
+                ctx.strokeStyle = link.type === 'code_node' ? nodeColor(link.node_type) : (faded ? 'rgba(148,163,184,.12)' : 'rgba(148,163,184,.5)');
+                ctx.globalAlpha = faded ? .24 : (link.type === 'code_node' ? .7 : 1);
                 ctx.beginPath(); ctx.moveTo(source.x, source.y); ctx.lineTo(target.x, target.y); ctx.stroke();
             });
-            visible.forEach((node) => {
-                const point = positions.get(String(node.id));
-                const type = asText(node.type);
-                const colors = { project: '#ef4444', folder: '#8b5cf6', file: '#3b82f6', class: '#f59e0b', function: '#10b981' };
-                ctx.fillStyle = colors[type] || '#94a3b8';
-                ctx.beginPath(); ctx.arc(point.x, point.y, 7, 0, Math.PI * 2); ctx.fill();
+            nodes.filter((node) => node.type === 'code_dot').forEach((node, index) => {
+                const parent = positions.get(node.parent_id);
+                if (!parent) return;
+                const parentNode = nodeById.get(node.parent_id);
+                const faded = graphFocusId !== null && !isFocusedNode(parentNode);
+                const angle = (index * 2.399963229728653) % (Math.PI * 2);
+                const distance = graphNodeRadius(parentNode) + 8 + (index % 5) * 3;
+                const point = { x: parent.x + Math.cos(angle) * distance, y: parent.y + Math.sin(angle) * distance };
+                positions.set(node.id, point);
+                ctx.globalAlpha = faded ? .22 : .92;
+                ctx.fillStyle = nodeColor((links.find((link) => link.target === node.id) || {}).node_type);
+                ctx.beginPath(); ctx.arc(point.x, point.y, 2.2, 0, Math.PI * 2); ctx.fill();
             });
-            canvas.onclick = (event) => {
-                const rect = canvas.getBoundingClientRect();
-                const x = (event.clientX - rect.left) * width / rect.width;
-                const y = (event.clientY - rect.top) * height / rect.height;
-                for (const node of visible) {
-                    const point = positions.get(String(node.id));
-                    if (Math.hypot(point.x - x, point.y - y) <= 12) {
-                        const projectName = projectsMap.get(node.group);
-                        if (projectName) loadProject(node.group, projectName);
-                        break;
-                    }
-                }
-            };
+            links.filter((link) => link.type === 'code_node').forEach((link) => {
+                const source = positions.get(link.source);
+                const target = positions.get(link.target);
+                if (!source || !target) return;
+                const sourceNode = nodeById.get(link.source);
+                ctx.globalAlpha = graphFocusId !== null && !isFocusedNode(sourceNode) ? .22 : .7;
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = nodeColor(link.node_type);
+                ctx.beginPath(); ctx.moveTo(source.x, source.y); ctx.lineTo(target.x, target.y); ctx.stroke();
+            });
+            graphHitTargets = structuralNodes(nodes).map((node) => ({ node, point: positions.get(node.id) })).filter((entry) => entry.point);
+            graphHitTargets.forEach(({ node, point }) => {
+                const faded = graphFocusId !== null && !isFocusedNode(node);
+                ctx.globalAlpha = faded ? .24 : 1;
+                const colors = { karst: '#06b6d4', project: '#ef4444', folder: '#8b5cf6', file: '#3b82f6' };
+                ctx.fillStyle = colors[node.type] || '#94a3b8';
+                ctx.beginPath(); ctx.arc(point.x, point.y, graphNodeRadius(node), 0, Math.PI * 2); ctx.fill();
+            });
+            ctx.globalAlpha = 1;
         }
 
-        function renderGraph(graphData) {
+        function graphTargetAt(event) {
+            const canvas = byId('graph-canvas');
+            const rect = canvas.getBoundingClientRect();
+            const x = (event.clientX - rect.left) * canvas.width / rect.width;
+            const y = (event.clientY - rect.top) * canvas.height / rect.height;
+            return graphHitTargets.find(({ node, point }) => Math.hypot(point.x - x, point.y - y) <= graphNodeRadius(node) + 4) || null;
+        }
+
+        function bindGraphCanvas() {
+            const canvas = byId('graph-canvas');
+            canvas.addEventListener('mousemove', (event) => {
+                const target = graphTargetAt(event);
+                if (!target || target.node.type === 'karst') {
+                    setText('graph-detail', 'Hover a file or folder for its summary. Select a folder to step inside its translucent context.');
+                    return;
+                }
+                const detail = target.node.detail || {};
+                const label = detail.path || detail.name || target.node.type;
+                setText('graph-detail', `${label} · ${formatCompactNumber(target.node.weight)} constituent nodes${target.node.type === 'folder' ? ' · click to step inside' : ''}`);
+            });
+            canvas.addEventListener('click', (event) => {
+                const target = graphTargetAt(event);
+                if (!target) return;
+                if (target.node.type === 'folder') {
+                    graphFocusId = target.node.id;
+                    renderStructuralGraph();
+                }
+            });
+        }
+
+        function renderStructuralGraph() {
             const nodes = Array.isArray(graphData.nodes) ? graphData.nodes : [];
             const links = Array.isArray(graphData.links) ? graphData.links : [];
-            const list = byId('graph-list');
-            setText(
-                'graph-summary',
-                `${nodes.length} nodes and ${links.length} links${currentProjectId === null ? '' : ' in selected repository'}`
-            );
-            drawGraphCanvas(nodes, links);
-            if (nodes.length === 0) {
-                renderMessage(list, 'No graph nodes are available.');
-                return;
-            }
-
-            const fragment = document.createDocumentFragment();
-            nodes.slice(0, MAX_GRAPH_NODES).forEach((node) => {
-                const projectName = projectsMap.get(node.group);
-                const card = document.createElement(projectName ? 'button' : 'div');
-                card.className = 'graph-node';
-                if (projectName) {
-                    card.type = 'button';
-                    card.addEventListener('click', () => loadProject(node.group, projectName));
-                }
-                const dot = document.createElement('span');
-                dot.className = `graph-dot ${graphDotClass(asText(node.type))}`;
-                const copy = document.createElement('span');
-                copy.appendChild(createTextElement('span', truncate(node.name || node.id, 70), 'graph-node-name'));
-                copy.appendChild(createTextElement('span', asText(node.type || 'node'), 'graph-node-meta'));
-                card.append(dot, copy);
-                fragment.appendChild(card);
-            });
-            list.replaceChildren(fragment);
-            if (nodes.length > MAX_GRAPH_NODES) {
-                list.appendChild(
-                    createTextElement(
-                        'p',
-                        `Showing the first ${MAX_GRAPH_NODES} of ${nodes.length} nodes.`,
-                        'message'
-                    )
-                );
-            }
+            setText('graph-summary', `${nodes.filter((node) => node.type !== 'code_dot').length} structural entities · ${nodes.filter((node) => node.type === 'code_dot').length} individual code dots${graphFocusId === null ? '' : ' · focused folder context'}`);
+            drawStructuralGraph(nodes, links);
         }
 
         async function loadGraph() {
-            const list = byId('graph-list');
-            renderMessage(list, 'Loading graph...');
             try {
-                const suffix = currentProjectId === null
-                    ? ''
-                    : `?project_id=${encodeURIComponent(String(currentProjectId))}`;
-                const graphData = await fetchJSON(`/api/graph${suffix}`);
-                renderGraph(graphData || {});
+                graphData = await fetchJSON('/api/graph');
+                renderStructuralGraph();
             } catch (error) {
                 console.error('Failed to load graph', error);
                 setText('graph-summary', 'Graph unavailable');
-                renderMessage(list, 'Could not load graph data.', 'error');
+                setText('graph-detail', 'Could not load structural graph data.');
             }
         }
 
@@ -1129,7 +1195,10 @@
                 button.addEventListener('click', () => selectBottomTab(button.dataset.bottomTab));
             });
             byId('reset-view').addEventListener('click', resetView);
-            byId('graph-reset').addEventListener('click', loadGraph);
+            byId('graph-reset').addEventListener('click', () => {
+                graphFocusId = null;
+                loadGraph();
+            });
             byId('admin-login-form').addEventListener('submit', loginAdminSession);
             byId('admin-logout').addEventListener('click', logoutAdminSession);
         }
@@ -1180,6 +1249,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             bindControls();
             bindResizer();
+            bindGraphCanvas();
             loadDashboard();
         });
     </script>
