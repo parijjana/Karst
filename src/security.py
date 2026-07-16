@@ -160,14 +160,22 @@ class PathSecurityPolicy:
             current = Path(current_root)
             retained_directories: list[str] = []
             for name in directory_names:
+                candidate = current / name
+                # The controlled gate owns this exact local temporary parent.
+                # Check it before pruning so a hostile reparse point cannot be
+                # hidden behind its recognized transient name.
+                if name == "kgt":
+                    if _is_reparse_point(candidate):
+                        raise SecurityViolation("link_not_allowed")
+                    untracked.append((candidate, "folder"))
+                    continue
                 if (
                     name in ignored_directories
                     or name.startswith(".")
                     or _is_transient_generated_directory(name)
                 ):
-                    untracked.append((current / name, "folder"))
+                    untracked.append((candidate, "folder"))
                     continue
-                candidate = current / name
                 if _is_reparse_point(candidate):
                     raise SecurityViolation("link_not_allowed")
                 retained_directories.append(name)

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import src.security as security
 from src.security import (
     PathSecurityPolicy,
     SecurityViolation,
@@ -133,6 +134,43 @@ def test_discovery_skips_recognized_transient_generated_directories(
     assert policy.discover_project_files(project, {".py"}, set()) == []
 
 
+def test_discovery_prunes_controlled_gate_temporary_parent(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    gate_temp = project / "kgt"
+    gate_temp.mkdir(parents=True)
+    (gate_temp / "generated.py").write_text("x = 1", encoding="utf-8")
+    source = project / "source.py"
+    source.write_text("x = 1", encoding="utf-8")
+    policy = PathSecurityPolicy((tmp_path,))
+
+    discovered, untracked = policy.discover_project_inventory(project, {".py"}, set())
+
+    assert discovered == [source]
+    assert untracked == [(gate_temp, "folder")]
+
+
+def test_discovery_rejects_reparse_point_named_controlled_gate_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    gate_temp = project / "kgt"
+    gate_temp.mkdir(parents=True)
+    policy = PathSecurityPolicy((tmp_path,))
+    original_is_reparse_point = security._is_reparse_point
+
+    def is_reparse_point(path: Path) -> bool:
+        if path == gate_temp:
+            return True
+        return original_is_reparse_point(path)
+
+    monkeypatch.setattr(security, "_is_reparse_point", is_reparse_point)
+
+    with pytest.raises(SecurityViolation) as error:
+        policy.discover_project_files(project, {".py"}, set())
+
+    assert violation_code(error) == "link_not_allowed"
+
+
 def test_discovery_fails_closed_for_unknown_unreadable_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -174,17 +212,16 @@ def test_registered_project_success_and_public_error_contract(
     identity = stable_project_id(project)
 
     assert validate_project_name("project-1") == "project-1"
-    assert validate_registered_project(
-        policy, str(project), TRUSTED_LOCAL_OWNER, identity
-    ) == project
+    assert (
+        validate_registered_project(policy, str(project), TRUSTED_LOCAL_OWNER, identity)
+        == project
+    )
     error = SecurityViolation("bounded")
     assert security_error(error) == "Security error [bounded]."
 
     with pytest.raises(SecurityViolation) as invalid_name:
         validate_project_name("not allowed!")
     with pytest.raises(SecurityViolation) as mismatched:
-        validate_registered_project(
-            policy, str(project), TRUSTED_LOCAL_OWNER, "wrong"
-        )
+        validate_registered_project(policy, str(project), TRUSTED_LOCAL_OWNER, "wrong")
     assert violation_code(invalid_name) == "invalid_project_identifier"
     assert violation_code(mismatched) == "project_identity_invalid"
