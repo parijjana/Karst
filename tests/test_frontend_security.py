@@ -121,6 +121,19 @@ def test_dashboard_uses_ephemeral_session_csrf_and_bounded_requests(
     assert "?limit=" in source
 
 
+def test_files_overview_groups_lazy_loaded_rows_by_project(
+    dashboard: tuple[str, DashboardHTMLParser],
+) -> None:
+    source, _parser = dashboard
+
+    assert '<h2>Files</h2>' in source
+    assert "project-file-section" in source
+    assert "Open to load tracked files." in source
+    assert "Load more files" in source
+    assert "loadProjectFilePage" in source
+    assert "/files?limit=${MAX_TABLE_ROWS}&offset=${offset}" in source
+
+
 def test_inline_javascript_is_syntactically_valid(
     dashboard: tuple[str, DashboardHTMLParser],
 ) -> None:

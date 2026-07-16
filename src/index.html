@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-je+UVOg2g5L73FI7yOjrNlcTsA73heaXOcBsu7Ewc0g='; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; manifest-src 'none'; worker-src 'none'; media-src 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-330aLEBn27PcQC3D2IrV+0chdtfIr8BwTLDoOKM1hAE='; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; manifest-src 'none'; worker-src 'none'; media-src 'none'">
     <title>Karst</title>
     <style>
         :root {
@@ -122,6 +122,29 @@
             border-bottom: 1px solid var(--border-color);
         }
         .panel-heading h2 { margin: 0; padding: 0; border: 0; }
+        .project-file-section {
+            margin: 0 0 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.42);
+        }
+        .project-file-section summary {
+            cursor: pointer;
+            padding: 12px;
+            color: var(--text-color);
+            font-weight: 700;
+        }
+        .project-summary {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            padding: 0 12px 12px;
+            color: var(--muted-color);
+            font-size: 0.8rem;
+        }
+        .project-summary strong { color: var(--text-color); }
+        .project-file-list { padding: 0 12px 12px; }
+        .project-file-actions { display: flex; gap: 8px; padding: 0 12px 12px; }
         #dd-project-name { color: var(--text-color); }
         #drill-down-panel[hidden], [hidden] { display: none !important; }
         .tabs {
@@ -274,8 +297,8 @@
         </header>
         <main class="content">
             <section class="panel" id="projects-panel">
-                <h2>Repositories</h2>
-                <div id="projects-container" class="message" aria-live="polite">Loading repositories...</div>
+                <h2>Files</h2>
+                <div id="projects-container" class="message" aria-live="polite">Loading project file summaries...</div>
             </section>
             <section class="panel" id="drill-down-panel" hidden>
                 <div class="panel-heading">
@@ -536,7 +559,7 @@
 
         async function loadProjects() {
             const container = byId('projects-container');
-            renderMessage(container, 'Loading repositories...');
+            renderMessage(container, 'Loading project file summaries...');
             try {
                 const response = await fetchJSON(
                     `/api/projects?limit=${MAX_TABLE_ROWS}&offset=0`
@@ -547,26 +570,106 @@
                     projectsMap.set(project.id, project);
                 });
                 if (projects.length === 0) {
-                    renderMessage(container, 'No indexed repositories are available.');
+                    renderMessage(container, 'No indexed project files are available.');
                     return;
                 }
-                const table = createTable(
-                    [
-                        { key: 'name', label: 'Project' },
-                        { key: 'tracked_file_count', label: 'Tracked files' },
-                        { key: 'nonblank_loc_total', label: 'Non-blank LOC' },
-                        { key: 'untracked_file_count', label: 'Untracked files' },
-                        { key: 'untracked_folder_count', label: 'Untracked folders' },
-                        { key: 'discovered_not_indexed_count', label: 'Not indexed' }
-                    ],
-                    projects,
-                    (project) => loadProject(project.id, project.name)
-                );
-                container.replaceChildren(table);
+                renderProjectFileSections(container, projects);
             } catch (error) {
                 console.error('Failed to load repositories', error);
                 renderMessage(container, 'Could not load repositories.', 'error');
             }
+        }
+
+        function projectSummaryMetric(label, value) {
+            const metric = document.createElement('span');
+            metric.appendChild(createTextElement('strong', `${safeNumber(value)} `));
+            metric.appendChild(document.createTextNode(label));
+            return metric;
+        }
+
+        function appendProjectFileRows(table, rows) {
+            const body = table.tBodies[0];
+            rows.forEach((row) => {
+                const tableRow = document.createElement('tr');
+                tableRow.appendChild(createTextElement('td', row.path));
+                tableRow.appendChild(createTextElement('td', safeNumber(row.nonblank_loc)));
+                body.appendChild(tableRow);
+            });
+        }
+
+        async function loadProjectFilePage(project, table, status, loadMore, offset) {
+            status.textContent = 'Loading tracked files...';
+            loadMore.disabled = true;
+            try {
+                const projectId = encodeURIComponent(String(project.id));
+                const rows = await fetchJSON(
+                    `/api/projects/${projectId}/files?limit=${MAX_TABLE_ROWS}&offset=${offset}`
+                );
+                const files = Array.isArray(rows) ? rows : [];
+                appendProjectFileRows(table, files);
+                const shown = offset + files.length;
+                const total = safeNumber(project.tracked_file_count);
+                status.textContent = total > shown
+                    ? `Showing ${shown} of ${total} tracked files.`
+                    : `${shown} tracked file${shown === 1 ? '' : 's'}.`;
+                loadMore.hidden = total <= shown || files.length === 0;
+                loadMore.disabled = false;
+                loadMore.onclick = () => loadProjectFilePage(
+                    project, table, status, loadMore, shown
+                );
+            } catch (error) {
+                console.error('Failed to load project files', error);
+                status.textContent = 'Could not load tracked files.';
+                loadMore.disabled = false;
+            }
+        }
+
+        function renderProjectFileSections(container, projects) {
+            const fragment = document.createDocumentFragment();
+            projects.forEach((project) => {
+                const section = document.createElement('details');
+                section.className = 'project-file-section';
+                section.appendChild(createTextElement(
+                    'summary',
+                    `${project.name} — ${safeNumber(project.tracked_file_count)} tracked files`
+                ));
+                const metrics = document.createElement('div');
+                metrics.className = 'project-summary';
+                [
+                    ['tracked', project.tracked_file_count],
+                    ['non-blank LOC', project.nonblank_loc_total],
+                    ['untracked files', project.untracked_file_count],
+                    ['untracked folders', project.untracked_folder_count],
+                    ['discovered, not indexed', project.discovered_not_indexed_count]
+                ].forEach(([label, value]) => metrics.appendChild(projectSummaryMetric(label, value)));
+                section.appendChild(metrics);
+                const list = document.createElement('div');
+                list.className = 'project-file-list';
+                const status = createTextElement('p', 'Open to load tracked files.');
+                const table = createTable([
+                    { key: 'path', label: 'Tracked file' },
+                    { key: 'nonblank_loc', label: 'Non-blank LOC' }
+                ], []);
+                table.hidden = true;
+                list.append(status, table);
+                section.appendChild(list);
+                const actions = document.createElement('div');
+                actions.className = 'project-file-actions';
+                const loadMore = createTextElement('button', 'Load more files', 'button button-secondary');
+                loadMore.type = 'button';
+                loadMore.hidden = true;
+                actions.appendChild(loadMore);
+                section.appendChild(actions);
+                let loaded = false;
+                section.addEventListener('toggle', () => {
+                    if (!section.open || loaded) return;
+                    loaded = true;
+                    table.hidden = false;
+                    loadProjectFilePage(project, table, status, loadMore, 0);
+                });
+                fragment.appendChild(section);
+            });
+            container.replaceChildren(fragment);
         }
 
         function selectDetailTab(tabName) {
