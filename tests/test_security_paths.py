@@ -171,6 +171,43 @@ def test_discovery_rejects_reparse_point_named_controlled_gate_parent(
     assert violation_code(error) == "link_not_allowed"
 
 
+def test_discovery_prunes_luna_summary_pytest_temporary_parent(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    temporary_parent = project / "luna-summary-pytest-elevated"
+    temporary_parent.mkdir(parents=True)
+    (temporary_parent / "generated.py").write_text("x = 1", encoding="utf-8")
+    source = project / "source.py"
+    source.write_text("x = 1", encoding="utf-8")
+    policy = PathSecurityPolicy((tmp_path,))
+
+    discovered, untracked = policy.discover_project_inventory(project, {".py"}, set())
+
+    assert discovered == [source]
+    assert untracked == [(temporary_parent, "folder")]
+
+
+def test_discovery_rejects_reparse_point_named_luna_summary_pytest_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    temporary_parent = project / "luna-summary-pytest-elevated"
+    temporary_parent.mkdir(parents=True)
+    policy = PathSecurityPolicy((tmp_path,))
+    original_is_reparse_point = security._is_reparse_point
+
+    def is_reparse_point(path: Path) -> bool:
+        if path == temporary_parent:
+            return True
+        return original_is_reparse_point(path)
+
+    monkeypatch.setattr(security, "_is_reparse_point", is_reparse_point)
+
+    with pytest.raises(SecurityViolation) as error:
+        policy.discover_project_files(project, {".py"}, set())
+
+    assert violation_code(error) == "link_not_allowed"
+
+
 def test_discovery_fails_closed_for_unknown_unreadable_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

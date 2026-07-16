@@ -164,7 +164,7 @@ class PathSecurityPolicy:
                 # The controlled gate owns this exact local temporary parent.
                 # Check it before pruning so a hostile reparse point cannot be
                 # hidden behind its recognized transient name.
-                if name == "kgt":
+                if name in {"kgt", "luna-summary-pytest-elevated"}:
                     if _is_reparse_point(candidate):
                         raise SecurityViolation("link_not_allowed")
                     untracked.append((candidate, "folder"))
