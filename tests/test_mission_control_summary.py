@@ -63,6 +63,80 @@ def test_summary_persists_nonblank_loc_and_separates_inventory_from_health(
     ]
 
 
+def test_normal_index_backfills_loc_for_unchanged_legacy_files(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "README.md").write_text(
+        "# Demo\n\nGovernance notes.\n",
+        encoding="utf-8",
+    )
+    (project / "module.py").write_text(
+        "value = 1\n\n\ndef read_value():\n    return value\n",
+        encoding="utf-8",
+    )
+    settings = _settings(tmp_path)
+    service = ProjectIndexService(settings, lambda: Database(settings.db_path))
+    assert service.index_project("demo", str(project)).startswith("Indexed 2 files")
+
+    with Database(settings.db_path) as database:
+        first_generation = int(
+            database.conn.execute(
+                "SELECT id FROM index_generations WHERE status='active'"
+            ).fetchone()[0]
+        )
+        first_nodes = int(
+            database.conn.execute(
+                "SELECT COUNT(*) FROM nodes WHERE generation_id=?",
+                (first_generation,),
+            ).fetchone()[0]
+        )
+        database.conn.execute(
+            "UPDATE files SET nonblank_lines=0 WHERE generation_id=?",
+            (first_generation,),
+        )
+
+    assert service.index_project("demo", str(project)).startswith("Indexed 0 files")
+
+    with Database(settings.db_path) as database:
+        active = database.conn.execute(
+            "SELECT id,query_ready FROM index_generations WHERE status='active'"
+        ).fetchone()
+        assert active is not None
+        assert int(active[0]) != first_generation
+        assert int(active[1]) == 1
+        assert tuple(
+            database.conn.execute(
+                "SELECT status,query_ready FROM index_generations WHERE id=?",
+                (first_generation,),
+            ).fetchone()
+        ) == ("superseded", 0)
+        assert [
+            tuple(row)
+            for row in database.conn.execute(
+                "SELECT DISTINCT nonblank_lines FROM files WHERE generation_id=?",
+                (first_generation,),
+            ).fetchall()
+        ] == [(0,)]
+        metrics = database.conn.execute(
+            "SELECT relative_path,nonblank_lines FROM files "
+            "WHERE generation_id=? ORDER BY relative_path",
+            (int(active[0]),),
+        ).fetchall()
+        assert [tuple(row) for row in metrics] == [
+            ("README.md", 2),
+            ("module.py", 3),
+        ]
+        assert database.conn.execute(
+            "SELECT COUNT(*) FROM nodes WHERE generation_id=?",
+            (int(active[0]),),
+        ).fetchone()[0] == first_nodes
+
+    summary = ProjectSummaryService(settings.db_path).projects(10, 0)[0]
+    assert summary["nonblank_loc_total"] == 5
+
+
 def summary_file_hash(settings: Settings) -> str:
     with Database(settings.db_path) as database:
         return str(database.conn.execute("SELECT hash FROM files").fetchone()[0])

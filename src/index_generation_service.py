@@ -96,6 +96,7 @@ class IncrementalIndexService:
                             failed += 1
                             raise ValueError("parse_failed")
                         skipped += 1
+                repo.refresh_nonblank_lines(generation.id, discovery.snapshots)
                 diagnostics.extend(
                     IndexDiagnostic(DiagnosticSeverity.WARNING, _code(code), _code(code))
                     for code in plan.diagnostics if code not in {d.code for d in diagnostics}

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from src.karst_core.database.database import Database
+from src.index_identity import SourceSnapshot
 from src.index_models import DiagnosticSeverity, IndexDiagnostic, ParseStatus, ParsedFile
 
 
@@ -111,6 +112,46 @@ class IndexRepository:
                 "INSERT INTO untracked_paths(project_id,generation_id,relative_path,kind) VALUES(?,?,?,?)",
                 values,
             )
+
+    def refresh_nonblank_lines(
+        self, generation_id: int, snapshots: Iterable[SourceSnapshot]
+    ) -> None:
+        """Refresh staging LOC from the exact bytes represented by its manifest."""
+        values = tuple(snapshots)
+        by_path = {snapshot.candidate.relative_path: snapshot for snapshot in values}
+        if len(by_path) != len(values):
+            raise ValueError("discovered snapshots contain duplicate paths")
+        with self.database.transaction():
+            row = self.database.conn.execute(
+                "SELECT status FROM index_generations WHERE id=?", (generation_id,)
+            ).fetchone()
+            if row is None or row[0] != "staging":
+                raise ValueError("generation is not staging")
+            files = self.database.conn.execute(
+                "SELECT relative_path,hash,byte_size FROM files WHERE generation_id=?",
+                (generation_id,),
+            ).fetchall()
+            for relative_path, digest, byte_size in files:
+                snapshot = by_path.get(str(relative_path))
+                if snapshot is None or (
+                    snapshot.content_sha256,
+                    snapshot.byte_size,
+                ) != (str(digest), int(byte_size)):
+                    raise ValueError("staging manifest does not match discovered snapshot")
+                updated = self.database.conn.execute(
+                    """UPDATE files SET nonblank_lines=?
+                       WHERE generation_id=? AND relative_path=?
+                       AND hash=? AND byte_size=?""",
+                    (
+                        _nonblank_lines(snapshot.content),
+                        generation_id,
+                        snapshot.candidate.relative_path,
+                        snapshot.content_sha256,
+                        snapshot.byte_size,
+                    ),
+                )
+                if updated.rowcount != 1:
+                    raise ValueError("staging manifest does not match discovered snapshot")
 
     def stage_edges(self, generation_id: int, edges: Iterable[tuple[int, int, str]]) -> None:
         """Stage validated node-id edges; each edge is inserted atomically."""
