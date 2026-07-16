@@ -134,6 +134,18 @@ def test_files_overview_groups_lazy_loaded_rows_by_project(
     assert "/files?limit=${MAX_TABLE_ROWS}&offset=${offset}" in source
 
 
+def test_project_summary_includes_total_and_grouped_node_counts(
+    dashboard: tuple[str, DashboardHTMLParser],
+) -> None:
+    source, _parser = dashboard
+
+    assert "project.node_counts_by_type" in source
+    assert "projectNodeTypeEntries" in source
+    assert "graph nodes" in source
+    assert "No indexed node types." in source
+    assert "humanizeNodeType" in source
+
+
 def test_inline_javascript_is_syntactically_valid(
     dashboard: tuple[str, DashboardHTMLParser],
 ) -> None:

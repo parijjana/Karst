@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-330aLEBn27PcQC3D2IrV+0chdtfIr8BwTLDoOKM1hAE='; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; manifest-src 'none'; worker-src 'none'; media-src 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-fbOL+Ycr8jsjuOLXvvP5CJjWjKIYDZ/Nj0+vQugv8ac='; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; manifest-src 'none'; worker-src 'none'; media-src 'none'">
     <title>Karst</title>
     <style>
         :root {
@@ -143,6 +143,7 @@
             font-size: 0.8rem;
         }
         .project-summary strong { color: var(--text-color); }
+        .project-node-empty { grid-column: 1 / -1; font-style: italic; }
         .project-file-list { padding: 0 12px 12px; }
         .project-file-actions { display: flex; gap: 8px; padding: 0 12px 12px; }
         #dd-project-name { color: var(--text-color); }
@@ -587,6 +588,32 @@
             return metric;
         }
 
+        function humanizeNodeType(value) {
+            const words = asText(value)
+                .trim()
+                .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+                .replace(/[_-]+/g, ' ')
+                .toLowerCase();
+            if (!words) return 'Unknown';
+            return words.replace(/\b\w/g, (letter) => letter.toUpperCase());
+        }
+
+        function projectNodeTypeEntries(counts) {
+            if (!counts || typeof counts !== 'object' || Array.isArray(counts)) {
+                return [];
+            }
+            return Object.entries(counts)
+                .map(([type, count]) => ({
+                    type: asText(type),
+                    label: humanizeNodeType(type),
+                    count: Math.max(0, Math.round(safeNumber(count)))
+                }))
+                .sort((left, right) => (
+                    left.label.localeCompare(right.label)
+                    || left.type.localeCompare(right.type)
+                ));
+        }
+
         function appendProjectFileRows(table, rows) {
             const body = table.tBodies[0];
             rows.forEach((row) => {
@@ -627,11 +654,13 @@
         function renderProjectFileSections(container, projects) {
             const fragment = document.createDocumentFragment();
             projects.forEach((project) => {
+                const nodeTypes = projectNodeTypeEntries(project.node_counts_by_type);
+                const nodeTotal = nodeTypes.reduce((total, entry) => total + entry.count, 0);
                 const section = document.createElement('details');
                 section.className = 'project-file-section';
                 section.appendChild(createTextElement(
                     'summary',
-                    `${project.name} — ${safeNumber(project.tracked_file_count)} tracked files`
+                    `${project.name} — ${safeNumber(project.tracked_file_count)} tracked files · ${nodeTotal} graph nodes`
                 ));
                 const metrics = document.createElement('div');
                 metrics.className = 'project-summary';
@@ -640,8 +669,18 @@
                     ['non-blank LOC', project.nonblank_loc_total],
                     ['untracked files', project.untracked_file_count],
                     ['untracked folders', project.untracked_folder_count],
-                    ['discovered, not indexed', project.discovered_not_indexed_count]
+                    ['discovered, not indexed', project.discovered_not_indexed_count],
+                    ['graph nodes', nodeTotal]
                 ].forEach(([label, value]) => metrics.appendChild(projectSummaryMetric(label, value)));
+                if (nodeTypes.length === 0) {
+                    metrics.appendChild(createTextElement(
+                        'span', 'No indexed node types.', 'project-node-empty'
+                    ));
+                } else {
+                    nodeTypes.forEach((entry) => metrics.appendChild(
+                        projectSummaryMetric(`${entry.label} nodes`, entry.count)
+                    ));
+                }
                 section.appendChild(metrics);
                 const list = document.createElement('div');
                 list.className = 'project-file-list';
@@ -730,16 +769,15 @@
         }
 
         function renderNodeTypeSummary(container, counts) {
-            const entries = Object.entries(counts && typeof counts === 'object' ? counts : {});
+            const entries = projectNodeTypeEntries(counts);
             if (entries.length === 0) {
                 renderMessage(container, 'No indexed node types are available.');
                 return;
             }
-            const rows = entries.sort(([left], [right]) => left.localeCompare(right)).map(([type, count]) => ({ type, count }));
             container.replaceChildren(createTable([
                 { key: 'type', label: 'Node type' },
                 { key: 'count', label: 'Count' }
-            ], rows));
+            ], entries.map((entry) => ({ type: entry.label, count: entry.count }))));
         }
 
         function nodeColor(nodeType) {
