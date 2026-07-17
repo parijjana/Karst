@@ -6,7 +6,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.index_identity import _require_uuid5
+from src.karst_core.indexing.identity import _require_uuid5
 from src.text_contracts import (
     MAX_KIND_UTF8_BYTES,
     MAX_NAME_UTF8_BYTES,

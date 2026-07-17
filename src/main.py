@@ -8,8 +8,8 @@ from mcp.server.fastmcp import FastMCP
 from src.karst_core.database.database import Database
 from src.karst_core.database.database_session import get_project_id
 from src.git_logic import do_backfill_git_history
-from src.indexing_service import ProjectIndexService
-from src.parser import CodeParser, ParseStatus, ParseSummary
+from src.karst_core.indexing.service import ProjectIndexService
+from src.karst_core.parser import CodeParser, ParseStatus, ParseSummary
 from src.query_logic import do_find_deps, do_semantic_search
 from src.query_cursor import SymbolFilters, SymbolPageCursorCodec
 from src.query_service import QueryService

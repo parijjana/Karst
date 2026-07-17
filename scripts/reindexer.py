@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 
 from src.karst_core.database.database import Database
-from src.parser import CodeParser, ParseStatus, ParseSummary
+from src.karst_core.parser import CodeParser, ParseStatus, ParseSummary
 from src.security import (
     PathSecurityPolicy,
     SecurityViolation,

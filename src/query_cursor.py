@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.index_identity import _require_uuid5
+from src.karst_core.indexing.identity import _require_uuid5
 from src.text_contracts import (
     require_kind,
     require_name,
