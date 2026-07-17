@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-fbOL+Ycr8jsjuOLXvvP5CJjWjKIYDZ/Nj0+vQugv8ac='; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; manifest-src 'none'; worker-src 'none'; media-src 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ATPUJAUfzc1fzQSj49Sy4FuMUdG0pX6wTovPRVFYi5A='; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; manifest-src 'none'; worker-src 'none'; media-src 'none'">
     <title>Karst</title>
     <style>
         :root {
@@ -307,8 +307,7 @@
                     <button class="button" id="reset-view" type="button">&larr; View all</button>
                 </div>
                 <div class="tabs" role="tablist" aria-label="Repository data">
-                    <button class="tab active" type="button" data-detail-tab="files">Files</button>
-                    <button class="tab" type="button" data-detail-tab="nodes">Nodes</button>
+                    <button class="tab active" type="button" data-detail-tab="nodes">Nodes</button>
                     <button class="tab" type="button" data-detail-tab="telemetry">Telemetry</button>
                     <button class="tab" type="button" data-detail-tab="commits">Commits</button>
                 </div>
@@ -371,7 +370,7 @@
                     <span id="graph-summary">Loading graph...</span>
                     <button class="button button-secondary" id="graph-reset" type="button">Refresh graph</button>
                 </div>
-                <canvas id="graph-canvas" width="1200" height="620" aria-label="Progressive structural graph visualization"></canvas>
+                <canvas id="graph-canvas" width="1200" height="620" role="application" tabindex="0" aria-describedby="graph-detail" aria-label="Progressive structural graph visualization. Use arrow keys to choose a folder, Enter to focus it, and Escape to reset."></canvas>
                 <p id="graph-detail" aria-live="polite">Hover a file or folder for its summary. Select a folder to step inside its translucent context.</p>
                 <div class="legend" aria-label="Node type legend">
                     <span class="legend-item"><span class="graph-dot graph-dot-folder"></span>Folders</span>
@@ -406,11 +405,13 @@
             'embedder'
         ]);
         const SCRIPT_ACTIONS = Object.freeze(['start', 'stop']);
-        const DETAIL_TABS = Object.freeze(['files', 'nodes', 'telemetry', 'commits']);
+        const DETAIL_TABS = Object.freeze(['nodes', 'telemetry', 'commits']);
         const projectsMap = new Map();
         let graphData = { nodes: [], links: [] };
         let graphFocusId = null;
+        let graphKeyboardId = null;
         let graphHitTargets = [];
+        let graphRequestGeneration = 0;
         let currentProjectId = null;
         let adminCsrfToken = null;
         let adminMutationPromise = null;
@@ -697,7 +698,14 @@
                 const loadMore = createTextElement('button', 'Load more files', 'button button-secondary');
                 loadMore.type = 'button';
                 loadMore.hidden = true;
-                actions.appendChild(loadMore);
+                const projectDetails = createTextElement(
+                    'button', 'Open Nodes, Telemetry, and Commits', 'button button-primary'
+                );
+                projectDetails.type = 'button';
+                projectDetails.addEventListener('click', () => {
+                    loadProject(project.id, project.name);
+                });
+                actions.append(projectDetails, loadMore);
                 section.appendChild(actions);
                 let loaded = false;
                 section.addEventListener('toggle', () => {
@@ -737,14 +745,9 @@
                     renderMessage(content, 'No data available.');
                     return;
                 }
-                const columns = tabName === 'files'
-                    ? [
-                        { key: 'path', label: 'Tracked file' },
-                        { key: 'nonblank_loc', label: 'Non-blank LOC' }
-                    ]
-                    : Object.keys(rows[0])
-                        .filter((key) => !new Set(['id', 'project_id', 'file_id']).has(key))
-                        .map((key) => ({ key, label: key.replaceAll('_', ' ').toUpperCase() }));
+                const columns = Object.keys(rows[0])
+                    .filter((key) => !new Set(['id', 'project_id', 'file_id']).has(key))
+                    .map((key) => ({ key, label: key.replaceAll('_', ' ').toUpperCase() }));
                 content.replaceChildren(createTable(columns, rows));
             } catch (error) {
                 console.error('Failed to load repository details', error);
@@ -757,7 +760,7 @@
             setText('dd-project-name', name);
             byId('drill-down-panel').hidden = false;
             byId('projects-panel').hidden = true;
-            await showDetailTab('files');
+            await showDetailTab('nodes');
         }
 
         async function resetView() {
@@ -765,7 +768,8 @@
             byId('drill-down-panel').hidden = true;
             byId('projects-panel').hidden = false;
             graphFocusId = null;
-            renderStructuralGraph();
+            graphKeyboardId = null;
+            await loadGraph();
         }
 
         function renderNodeTypeSummary(container, counts) {
@@ -791,7 +795,7 @@
 
         function isFocusedNode(node) {
             if (graphFocusId === null) return true;
-            return node.id === graphFocusId || (Array.isArray(node.ancestor_ids) && node.ancestor_ids.includes(graphFocusId)) || node.parent_id === graphFocusId;
+            return Boolean(node) && node.focus_state === 'focus';
         }
 
         function graphNodeRadius(node) {
@@ -851,6 +855,11 @@
             ctx.clearRect(0, 0, width, height);
             const positions = layoutStructuralNodes(nodes, width, height);
             const nodeById = new Map(nodes.map((node) => [node.id, node]));
+            const codeNodeTypeByTarget = new Map(
+                links
+                    .filter((link) => link.type === 'code_node')
+                    .map((link) => [link.target, asText(link.node_type)])
+            );
             const focusedPosition = graphFocusId === null ? null : positions.get(graphFocusId);
             if (focusedPosition) {
                 ctx.fillStyle = 'rgba(6,182,212,.055)';
@@ -874,13 +883,13 @@
                 const parent = positions.get(node.parent_id);
                 if (!parent) return;
                 const parentNode = nodeById.get(node.parent_id);
-                const faded = graphFocusId !== null && !isFocusedNode(parentNode);
+                const faded = graphFocusId !== null && !isFocusedNode(node);
                 const angle = (index * 2.399963229728653) % (Math.PI * 2);
                 const distance = graphNodeRadius(parentNode) + 8 + (index % 5) * 3;
                 const point = { x: parent.x + Math.cos(angle) * distance, y: parent.y + Math.sin(angle) * distance };
                 positions.set(node.id, point);
                 ctx.globalAlpha = faded ? .22 : .92;
-                ctx.fillStyle = nodeColor((links.find((link) => link.target === node.id) || {}).node_type);
+                ctx.fillStyle = nodeColor(codeNodeTypeByTarget.get(node.id));
                 ctx.beginPath(); ctx.arc(point.x, point.y, 2.2, 0, Math.PI * 2); ctx.fill();
             });
             links.filter((link) => link.type === 'code_node').forEach((link) => {
@@ -893,13 +902,22 @@
                 ctx.strokeStyle = nodeColor(link.node_type);
                 ctx.beginPath(); ctx.moveTo(source.x, source.y); ctx.lineTo(target.x, target.y); ctx.stroke();
             });
-            graphHitTargets = structuralNodes(nodes).map((node) => ({ node, point: positions.get(node.id) })).filter((entry) => entry.point);
-            graphHitTargets.forEach(({ node, point }) => {
+            graphHitTargets = nodes.map((node) => ({
+                node,
+                point: positions.get(node.id),
+                nodeType: node.type === 'code_dot' ? codeNodeTypeByTarget.get(node.id) : ''
+            })).filter((entry) => entry.point);
+            graphHitTargets.filter(({ node }) => node.type !== 'code_dot').forEach(({ node, point }) => {
                 const faded = graphFocusId !== null && !isFocusedNode(node);
                 ctx.globalAlpha = faded ? .24 : 1;
                 const colors = { karst: '#06b6d4', project: '#ef4444', folder: '#8b5cf6', file: '#3b82f6' };
                 ctx.fillStyle = colors[node.type] || '#94a3b8';
                 ctx.beginPath(); ctx.arc(point.x, point.y, graphNodeRadius(node), 0, Math.PI * 2); ctx.fill();
+                if (node.id === graphKeyboardId) {
+                    ctx.strokeStyle = '#f8fafc';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.arc(point.x, point.y, graphNodeRadius(node) + 5, 0, Math.PI * 2); ctx.stroke();
+                }
             });
             ctx.globalAlpha = 1;
         }
@@ -909,27 +927,73 @@
             const rect = canvas.getBoundingClientRect();
             const x = (event.clientX - rect.left) * canvas.width / rect.width;
             const y = (event.clientY - rect.top) * canvas.height / rect.height;
-            return graphHitTargets.find(({ node, point }) => Math.hypot(point.x - x, point.y - y) <= graphNodeRadius(node) + 4) || null;
+            return graphHitTargets.find(({ node, point }) => {
+                const hitRadius = node.type === 'code_dot' ? 6 : graphNodeRadius(node) + 4;
+                return Math.hypot(point.x - x, point.y - y) <= hitRadius;
+            }) || null;
         }
 
         function bindGraphCanvas() {
             const canvas = byId('graph-canvas');
-            canvas.addEventListener('mousemove', (event) => {
-                const target = graphTargetAt(event);
+            const describeTarget = (target, instruction = '') => {
                 if (!target || target.node.type === 'karst') {
-                    setText('graph-detail', 'Hover a file or folder for its summary. Select a folder to step inside its translucent context.');
+                    setText('graph-detail', 'Hover a file or folder for its summary. Use arrow keys to choose a folder, Enter to focus it, or Escape to reset.');
+                    return;
+                }
+                if (target.node.type === 'code_dot') {
+                    setText('graph-detail', `${humanizeNodeType(target.nodeType)} code node`);
                     return;
                 }
                 const detail = target.node.detail || {};
                 const label = detail.path || detail.name || target.node.type;
-                setText('graph-detail', `${label} · ${formatCompactNumber(target.node.weight)} constituent nodes${target.node.type === 'folder' ? ' · click to step inside' : ''}`);
+                setText('graph-detail', `${label} · ${formatCompactNumber(target.node.weight)} constituent nodes${instruction}`);
+            };
+            canvas.addEventListener('mousemove', (event) => {
+                const target = graphTargetAt(event);
+                describeTarget(target, target && target.node.type === 'folder' ? ' · click to step inside' : '');
             });
             canvas.addEventListener('click', (event) => {
                 const target = graphTargetAt(event);
                 if (!target) return;
+                describeTarget(target);
                 if (target.node.type === 'folder') {
                     graphFocusId = target.node.id;
+                    graphKeyboardId = target.node.id;
+                    setText('graph-detail', 'Loading selected folder context...');
+                    loadGraph(target.node.id);
+                }
+            });
+            canvas.addEventListener('keydown', (event) => {
+                const folders = graphHitTargets.filter(({ node }) => node.type === 'folder');
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    graphFocusId = null;
+                    graphKeyboardId = null;
+                    setText('graph-detail', 'Resetting to the complete structural graph...');
+                    loadGraph();
+                    return;
+                }
+                if (folders.length === 0) return;
+                if (['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(event.key)) {
+                    event.preventDefault();
+                    const direction = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1;
+                    const current = folders.findIndex(({ node }) => node.id === graphKeyboardId);
+                    const next = current < 0
+                        ? (direction > 0 ? 0 : folders.length - 1)
+                        : (current + direction + folders.length) % folders.length;
+                    const target = folders[next];
+                    graphKeyboardId = target.node.id;
+                    describeTarget(target, ' · press Enter to focus this folder');
                     renderStructuralGraph();
+                    return;
+                }
+                if (event.key === 'Enter') {
+                    const target = folders.find(({ node }) => node.id === graphKeyboardId) || folders[0];
+                    event.preventDefault();
+                    graphFocusId = target.node.id;
+                    graphKeyboardId = target.node.id;
+                    setText('graph-detail', 'Loading selected folder context...');
+                    loadGraph(target.node.id);
                 }
             });
         }
@@ -941,12 +1005,23 @@
             drawStructuralGraph(nodes, links);
         }
 
-        async function loadGraph() {
+        async function loadGraph(selectedFolderId = null) {
+            const requestGeneration = ++graphRequestGeneration;
             try {
-                graphData = await fetchJSON('/api/graph');
+                const endpoint = selectedFolderId === null
+                    ? '/api/graph'
+                    : `/api/graph?selected_folder_id=${encodeURIComponent(selectedFolderId)}`;
+                const nextGraphData = await fetchJSON(endpoint);
+                if (requestGeneration !== graphRequestGeneration) return;
+                graphData = nextGraphData;
+                graphFocusId = asText(nextGraphData.selected_folder_id) || null;
+                if (graphFocusId === null) graphKeyboardId = null;
                 renderStructuralGraph();
             } catch (error) {
+                if (requestGeneration !== graphRequestGeneration) return;
                 console.error('Failed to load graph', error);
+                graphFocusId = null;
+                graphKeyboardId = null;
                 setText('graph-summary', 'Graph unavailable');
                 setText('graph-detail', 'Could not load structural graph data.');
             }
@@ -1338,6 +1413,7 @@
             byId('reset-view').addEventListener('click', resetView);
             byId('graph-reset').addEventListener('click', () => {
                 graphFocusId = null;
+                graphKeyboardId = null;
                 loadGraph();
             });
             byId('admin-login-form').addEventListener('submit', loginAdminSession);

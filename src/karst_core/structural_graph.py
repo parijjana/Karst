@@ -7,20 +7,37 @@ incomplete index as an authoritative project map.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 import sqlite3
-from typing import Iterator
+from typing import Iterator, NotRequired, TypedDict
+
+
+class StructuralGraphPayload(TypedDict):
+    nodes: list[dict[str, object]]
+    links: list[dict[str, object]]
+    selected_folder_id: NotRequired[str]
 
 
 @dataclass(frozen=True, slots=True)
 class StructuralGraph:
     nodes: list[dict[str, object]]
     links: list[dict[str, object]]
+    selected_folder_id: str | None = None
 
-    def as_dict(self) -> dict[str, list[dict[str, object]]]:
-        return asdict(self)
+    def as_dict(self) -> StructuralGraphPayload:
+        payload: StructuralGraphPayload = {
+            "nodes": self.nodes,
+            "links": self.links,
+        }
+        if self.selected_folder_id is not None:
+            payload["selected_folder_id"] = self.selected_folder_id
+        return payload
+
+
+class SelectedFolderError(ValueError):
+    """Raised when a requested graph focus is not a folder in graph scope."""
 
 
 class StructuralGraphService:
@@ -29,20 +46,71 @@ class StructuralGraphService:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
 
-    def graph(self, project_id: int | None = None) -> StructuralGraph:
+    def graph(
+        self,
+        project_id: int | None = None,
+        selected_folder_id: str | None = None,
+    ) -> StructuralGraph:
         if not self._db_path.exists():
-            return StructuralGraph([], [])
+            return self._apply_folder_focus(
+                StructuralGraph([], []), selected_folder_id
+            )
         with self._connection() as connection:
             projects = self._projects(connection, project_id)
             if not projects:
-                return StructuralGraph([], [])
+                return self._apply_folder_focus(
+                    StructuralGraph([], []), selected_folder_id
+                )
             nodes: list[dict[str, object]] = [
                 {"id": "karst", "type": "karst", "weight": len(projects)}
             ]
             links: list[dict[str, object]] = []
             for project in projects:
                 self._append_project(connection, project, nodes, links)
-            return StructuralGraph(nodes, links)
+            return self._apply_folder_focus(
+                StructuralGraph(nodes, links), selected_folder_id
+            )
+
+    @staticmethod
+    def _apply_folder_focus(
+        graph: StructuralGraph, selected_folder_id: str | None
+    ) -> StructuralGraph:
+        if selected_folder_id is None:
+            return graph
+        selected = next(
+            (
+                node
+                for node in graph.nodes
+                if node.get("id") == selected_folder_id
+                and node.get("type") == "folder"
+            ),
+            None,
+        )
+        if selected is None:
+            raise SelectedFolderError(
+                "selected_folder_id must identify a folder in the requested graph scope"
+            )
+
+        focus_ids = {
+            str(node["id"])
+            for node in graph.nodes
+            if node.get("id") == selected_folder_id
+            or _has_ancestor(node, selected_folder_id)
+        }
+        focus_ids.update(
+            str(node["id"])
+            for node in graph.nodes
+            if node.get("type") == "code_dot"
+            and node.get("parent_id") in focus_ids
+        )
+        focused_nodes = [
+            {
+                **node,
+                "focus_state": "focus" if str(node["id"]) in focus_ids else "context",
+            }
+            for node in graph.nodes
+        ]
+        return StructuralGraph(focused_nodes, graph.links, selected_folder_id)
 
     @staticmethod
     def _projects(
@@ -177,6 +245,11 @@ class StructuralGraphService:
 def _opaque_id(kind: str, *parts: str) -> str:
     digest = sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:24]
     return f"{kind}_{digest}"
+
+
+def _has_ancestor(node: dict[str, object], ancestor_id: str) -> bool:
+    ancestor_ids = node.get("ancestor_ids")
+    return isinstance(ancestor_ids, list) and ancestor_id in ancestor_ids
 
 
 def _ancestors(relative_path: str) -> set[str]:

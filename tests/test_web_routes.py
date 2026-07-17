@@ -31,7 +31,9 @@ def make_settings(tmp_path: Path) -> Settings:
     )
 
 
-def seed_database(settings: Settings, tmp_path: Path) -> None:
+def seed_database(
+    settings: Settings, tmp_path: Path, *, include_nested_graph: bool = False
+) -> None:
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)
     with Database(settings.db_path) as database:
         project_id = database.add_project(
@@ -46,6 +48,13 @@ def seed_database(settings: Settings, tmp_path: Path) -> None:
         database.log_commit(
             project_id, "abc", "message", [{"path": "module.py", "status": "M"}]
         )
+        if include_nested_graph:
+            nested_file = database.add_file(
+                project_id, str(tmp_path / "pkg" / "nested.py"), "nested-hash"
+            )
+            database.add_node(
+                project_id, nested_file, "class", "RouteSecretSymbol", 8, 12
+            )
         generation_id = int(
             database.conn.execute(
                 "SELECT id FROM index_generations WHERE project_id=?", (project_id,)
@@ -109,6 +118,62 @@ def test_read_routes_have_honest_empty_states(tmp_path: Path) -> None:
     assert client.get("/api/telemetry").json() == []
     assert client.get("/api/services/metrics").json() == []
     assert client.get("/api/graph").json() == {"nodes": [], "links": []}
+
+
+def test_graph_route_forwards_opaque_selected_folder_focus(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    seed_database(settings, tmp_path, include_nested_graph=True)
+    project_id = 1
+
+    client = TestClient(create_app(settings), base_url=ORIGIN)
+    complete = client.get("/api/graph", params={"project_id": project_id}).json()
+    selected_folder_id = next(
+        str(node["id"])
+        for node in complete["nodes"]
+        if node["type"] == "folder" and node["detail"]["path"] == "pkg"
+    )
+
+    response = client.get(
+        "/api/graph",
+        params={
+            "project_id": project_id,
+            "selected_folder_id": selected_folder_id,
+        },
+    )
+    assert response.status_code == 200
+    focused = response.json()
+    focused_nodes = {str(node["id"]): node for node in focused["nodes"]}
+
+    assert focused["selected_folder_id"] == selected_folder_id
+    assert focused_nodes[selected_folder_id]["focus_state"] == "focus"
+    assert focused_nodes["karst"]["focus_state"] == "context"
+    assert any(
+        node["type"] == "code_dot" and node["focus_state"] == "focus"
+        for node in focused_nodes.values()
+    )
+    assert any(
+        node["type"] == "file"
+        and node["detail"]["path"] == "module.py"
+        and node["focus_state"] == "context"
+        for node in focused_nodes.values()
+    )
+    assert "RouteSecretSymbol" not in response.text
+
+
+def test_graph_route_rejects_invalid_selected_folder_scope(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    seed_database(settings, tmp_path, include_nested_graph=True)
+    client = TestClient(create_app(settings), base_url=ORIGIN)
+    complete = client.get("/api/graph", params={"project_id": 1}).json()
+    file_id = next(node["id"] for node in complete["nodes"] if node["type"] == "file")
+
+    for selected_folder_id in ("folder_does_not_exist", file_id):
+        response = client.get(
+            "/api/graph",
+            params={"project_id": 1, "selected_folder_id": selected_folder_id},
+        )
+        assert response.status_code == 400
+        assert "selected_folder_id" in response.json()["detail"]
 
 
 def test_admin_process_routes_map_unknown_scripts_to_not_found(

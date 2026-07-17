@@ -146,6 +146,85 @@ def test_project_summary_includes_total_and_grouped_node_counts(
     assert "humanizeNodeType" in source
 
 
+def test_each_project_summary_opens_operational_details_from_a_native_control(
+    dashboard: tuple[str, DashboardHTMLParser],
+) -> None:
+    source, _parser = dashboard
+    project_sections = source[
+        source.index("function renderProjectFileSections") :
+        source.index("function selectDetailTab")
+    ]
+
+    assert "createTextElement('button'" in project_sections
+    assert "loadProject(project.id, project.name)" in project_sections
+    assert all(label in source for label in ("Nodes", "Telemetry", "Commits"))
+
+
+def test_project_drill_down_starts_with_nodes_and_has_no_second_files_surface(
+    dashboard: tuple[str, DashboardHTMLParser],
+) -> None:
+    source, _parser = dashboard
+    load_project = source[
+        source.index("async function loadProject") :
+        source.index("async function resetView")
+    ]
+
+    assert 'data-detail-tab="files"' not in source
+    assert "showDetailTab('nodes')" in load_project
+    assert "showDetailTab('files')" not in load_project
+
+
+def test_graph_canvas_supports_keyboard_folder_activation(
+    dashboard: tuple[str, DashboardHTMLParser],
+) -> None:
+    source, _parser = dashboard
+    canvas_tag = re.search(r'<canvas\s+[^>]*id="graph-canvas"[^>]*>', source)
+    assert canvas_tag is not None
+    assert 'role="application"' in canvas_tag.group(0)
+    assert 'tabindex="0"' in canvas_tag.group(0)
+
+    bindings = source[
+        source.index("function bindGraphCanvas") :
+        source.index("function renderStructuralGraph")
+    ]
+    assert "canvas.addEventListener('keydown'" in bindings
+    assert "'Enter'" in bindings
+    assert "graphFocusId =" in bindings
+
+
+def test_folder_activation_fetches_server_scoped_graph_context(
+    dashboard: tuple[str, DashboardHTMLParser],
+) -> None:
+    source, _parser = dashboard
+    bindings = source[
+        source.index("function bindGraphCanvas") :
+        source.index("function renderStructuralGraph")
+    ]
+    graph_loader = source[
+        source.index("async function loadGraph") :
+        source.index("function setControlMessage")
+    ]
+
+    assert "loadGraph(target.node.id)" in bindings
+    assert "selected_folder_id" in graph_loader
+    assert "encodeURIComponent" in graph_loader
+
+
+def test_graph_render_precomputes_code_types_and_keeps_dots_interactive(
+    dashboard: tuple[str, DashboardHTMLParser],
+) -> None:
+    source, _parser = dashboard
+    renderer = source[
+        source.index("function drawStructuralGraph") :
+        source.index("function graphTargetAt")
+    ]
+
+    assert "new Map(" in renderer
+    assert ".filter((link) => link.type === 'code_node')" in renderer
+    assert "links.find(" not in renderer
+    assert "graphHitTargets = nodes.map" in renderer
+
+
 def test_inline_javascript_is_syntactically_valid(
     dashboard: tuple[str, DashboardHTMLParser],
 ) -> None:
