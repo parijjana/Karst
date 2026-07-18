@@ -105,14 +105,20 @@ def test_main_uses_core_parser_and_indexing_namespaces() -> None:
     assert "src.indexing_service" not in imported
 
 
-def test_main_uses_core_query_namespace() -> None:
-    imported = _imports(Path("src/main.py"))
+def test_mcp_adapter_owns_core_query_namespace() -> None:
+    main_imports = _imports(Path("src/main.py"))
+    handler_imports = _imports(Path("src/karst_mcp/handlers.py"))
+    legacy_modules = {
+        "src.query_cursor",
+        "src.query_models",
+        "src.query_service",
+        "src.symbol_repository",
+    }
 
-    assert "src.karst_core.query" in imported
-    assert "src.query_cursor" not in imported
-    assert "src.query_models" not in imported
-    assert "src.query_service" not in imported
-    assert "src.symbol_repository" not in imported
+    assert "src.karst_core.query" in handler_imports
+    assert "src.karst_core.query" not in main_imports
+    assert legacy_modules.isdisjoint(main_imports)
+    assert legacy_modules.isdisjoint(handler_imports)
 
 
 def test_semantic_search_remains_outside_core_query() -> None:

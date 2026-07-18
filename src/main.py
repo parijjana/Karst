@@ -1,36 +1,65 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import secrets
 
-from mcp.server.fastmcp import FastMCP
-
-from src.karst_core.database.database import Database
+from src.core_settings import core_settings
 from src.karst_core.database.database_session import get_project_id
 from src.karst_core.embeddings import do_semantic_search
 from src.karst_core.git_history import do_backfill_git_history
 from src.karst_core.indexing.service import ProjectIndexService
 from src.karst_core.parser import CodeParser, ParseStatus, ParseSummary
-from src.karst_core.query import (
-    ApiError,
-    QueryErrorCode,
-    QueryService,
-    SymbolFilters,
-    SymbolPageCursorCodec,
-    SymbolPageError,
-    SymbolRepository,
-    do_find_deps,
-)
-from src.core_settings import CoreSettings, core_settings
+from src.karst_mcp.contracts import define_tool_contracts
+from src.karst_mcp.handlers import KarstToolHandlers
+from src.karst_mcp.server import create_server
 from src.tool_service import GraphToolService
 
 
-mcp = FastMCP("Karst")
-_CURSOR_KEY = secrets.token_bytes(32)
+_handlers = KarstToolHandlers(
+    configuration_provider=lambda: core_settings,
+    index_service_factory=lambda configuration, database_factory: ProjectIndexService(
+        configuration, database_factory, CodeParser
+    ),
+    tool_service_factory=lambda configuration, database_factory: GraphToolService(
+        configuration, database_factory
+    ),
+    history_operation_provider=lambda: do_backfill_git_history,
+    semantic_operation_provider=lambda: do_semantic_search,
+)
+
+# Compatibility facade: legacy imports keep resolving to the composed handler object.
+get_db = _handlers.get_db
+list_symbols = _handlers.list_symbols
+index_project = _handlers.index_project
+update_graph = _handlers.update_graph
+rebuild_database = _handlers.rebuild_database
+query_symbol = _handlers.query_symbol
+get_file_outline = _handlers.get_file_outline
+find_dependencies = _handlers.find_dependencies
+find_dependents = _handlers.find_dependents
+log_commit = _handlers.log_commit
+backfill_git_history = _handlers.backfill_git_history
+semantic_search = _handlers.semantic_search
+
+TOOL_CONTRACTS = define_tool_contracts(
+    list_symbols,
+    index_project,
+    update_graph,
+    rebuild_database,
+    query_symbol,
+    get_file_outline,
+    find_dependencies,
+    find_dependents,
+    log_commit,
+    backfill_git_history,
+    semantic_search,
+)
+mcp = create_server("Karst", TOOL_CONTRACTS)
+
 __all__ = [
     "CodeParser",
     "ParseStatus",
     "ParseSummary",
+    "TOOL_CONTRACTS",
     "backfill_git_history",
     "find_dependencies",
     "find_dependents",
@@ -38,157 +67,14 @@ __all__ = [
     "get_file_outline",
     "get_project_id",
     "index_project",
+    "list_symbols",
     "log_commit",
     "mcp",
     "query_symbol",
     "rebuild_database",
-    "list_symbols",
     "semantic_search",
     "update_graph",
 ]
-
-
-def get_db(configuration: CoreSettings | None = None) -> Database:
-    active_settings = configuration or core_settings
-    active_settings.data_dir.mkdir(parents=True, exist_ok=True)
-    return Database(str(active_settings.db_path))
-
-
-def _database_factory() -> Database:
-    return get_db()
-
-
-def _index_service() -> ProjectIndexService:
-    return ProjectIndexService(core_settings, _database_factory, CodeParser)
-
-
-def _tool_service() -> GraphToolService:
-    return GraphToolService(core_settings, _database_factory)
-
-
-def _query_service(database: Database, cursor_key: bytes | None = None) -> QueryService:
-    """Build the read-only query boundary with an injectable cursor key."""
-    codec = SymbolPageCursorCodec(cursor_key if cursor_key is not None else _CURSOR_KEY)
-    return QueryService(SymbolRepository(database, codec))
-
-
-@mcp.tool()
-def list_symbols(
-    project_name: str,
-    limit: int = 50,
-    cursor: str | None = None,
-    kind: str | None = None,
-    name: str | None = None,
-    qualified_name: str | None = None,
-    relative_path: str | None = None,
-) -> str:
-    """List symbols from the active immutable generation."""
-    database = get_db()
-    try:
-        project_id = get_project_id(database, project_name)
-        filters = SymbolFilters(kind, name, qualified_name, relative_path)
-        result = _query_service(database).list_symbols(
-            project_id, filters, limit, cursor
-        )
-        return result.model_dump_json()
-    except ValueError as error:
-        code = (
-            QueryErrorCode.PROJECT_NOT_FOUND
-            if str(error) == "Project not found."
-            else QueryErrorCode.LIMIT_EXCEEDED
-        )
-        message = (
-            "Project not found."
-            if code is QueryErrorCode.PROJECT_NOT_FOUND
-            else "Query parameters are invalid."
-        )
-        return SymbolPageError(
-            error=ApiError(code=code, message=message, retryable=False)
-        ).model_dump_json()
-    finally:
-        database.close()
-
-
-@mcp.tool()
-def index_project(project_name: str, root_path: str) -> str:
-    """Index supported files below a validated project root."""
-    return _index_service().index_project(project_name, root_path)
-
-
-@mcp.tool()
-def update_graph(project_name: str, filepaths: list[str]) -> str:
-    """Update only validated files belonging to a registered project."""
-    return _index_service().update_graph(project_name, filepaths)
-
-
-@mcp.tool()
-def rebuild_database(confirmation: str) -> str:
-    """Explicitly discard and recreate the current greenfield Karst database."""
-    if confirmation != "DELETE_AND_REBUILD":
-        return (
-            "Rebuild rejected. This deletes the current Karst database without a "
-            "backup; call rebuild_database(confirmation='DELETE_AND_REBUILD') to "
-            "continue."
-        )
-    try:
-        database = Database.rebuild_blocked_legacy_database(core_settings.db_path)
-    except ValueError as error:
-        return f"Rebuild rejected. {error}"
-    database.close()
-    return "Karst database deleted and rebuilt with the current schema."
-
-
-@mcp.tool()
-def query_symbol(project_name: str, symbol_name: str) -> str:
-    """Return the definition location of a symbol."""
-    return _tool_service().query_symbol(project_name, symbol_name)
-
-
-@mcp.tool()
-def get_file_outline(project_name: str, filepath: str) -> str:
-    """Return classes and functions defined in a file."""
-    return _tool_service().get_file_outline(project_name, filepath)
-
-
-@mcp.tool()
-def find_dependencies(project_name: str, symbol_name: str) -> str:
-    """Return outgoing dependency edges for a symbol."""
-    return _tool_service().dependency_query(
-        project_name, symbol_name, False, do_find_deps
-    )
-
-
-@mcp.tool()
-def find_dependents(project_name: str, symbol_name: str) -> str:
-    """Return incoming dependency edges for a symbol."""
-    return _tool_service().dependency_query(
-        project_name, symbol_name, True, do_find_deps
-    )
-
-
-@mcp.tool()
-def log_commit(
-    project_name: str,
-    commit_hash: str,
-    message: str,
-    files_changed: list[dict],
-) -> str:
-    """Store a commit and its changed files for a registered project."""
-    return _tool_service().log_commit(project_name, commit_hash, message, files_changed)
-
-
-@mcp.tool()
-def backfill_git_history(project_name: str, limit: int = 100) -> str:
-    """Ingest bounded local Git history for a validated project."""
-    return _tool_service().backfill(project_name, limit, do_backfill_git_history)
-
-
-@mcp.tool()
-def semantic_search(project_name: str, query: str, limit: int = 5) -> str:
-    """Search pre-provisioned semantic embeddings for a project."""
-    return _tool_service().semantic_search(
-        project_name, query, limit, do_semantic_search
-    )
 
 
 def run(transport_runner: Callable[[], None] | None = None) -> None:
