@@ -1,10 +1,7 @@
-"""Compatibility facade for Git-history ingestion."""
-
-from src.karst_core.git_history.ingestion import (
+from .ingestion import (
     GIT_TIMEOUT_SECONDS,
     MAX_HISTORY_LIMIT,
     do_backfill_git_history,
-    subprocess as subprocess,
 )
 
 __all__ = [

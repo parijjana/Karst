@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
 
-from src.karst_core.structural_graph import (
+from src.karst_core.query import (
     SelectedFolderError,
     StructuralGraphPayload,
     StructuralGraphService,

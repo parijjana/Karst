@@ -8,7 +8,7 @@ from typing import Annotated, Iterator
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from src.settings import Settings
-from src.karst_core.summary import ProjectSummaryService
+from src.karst_core.query import ProjectSummaryService
 from src.web_auth import request_settings
 
 

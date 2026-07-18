@@ -23,7 +23,10 @@ EXPECTED_DEFAULT_MODULE_FLOORS = {
     "src/karst_core/database/db_schema_v3.py": 70.0,
     "src/karst_core/database/db_schema_v3_contract.py": 70.0,
     "src/karst_core/database/db_schema_v3_expectations.py": 70.0,
-    "src/git_logic.py": 70.0,
+    "src/karst_core/embeddings/model.py": 70.0,
+    "src/karst_core/embeddings/repository.py": 70.0,
+    "src/karst_core/embeddings/search.py": 70.0,
+    "src/karst_core/git_history/ingestion.py": 70.0,
     "src/karst_core/indexing/service.py": 70.0,
     "src/karst_core/parser/facade.py": 80.0,
     "src/karst_core/parser/models.py": 80.0,
@@ -31,7 +34,6 @@ EXPECTED_DEFAULT_MODULE_FLOORS = {
     "src/main.py": 70.0,
     "src/mission_control_transition/process_manager.py": 70.0,
     "src/mission_control_transition/runtime_store.py": 70.0,
-    "src/query_logic.py": 70.0,
     "src/security.py": 85.0,
     "src/settings.py": 80.0,
     "src/tool_service.py": 70.0,
@@ -86,7 +88,11 @@ def test_pytest_command_uses_a_unique_short_gate_basetemp(tmp_path: Path) -> Non
         command for command in runner.commands if command[2] == "pytest"
     )
     basetemp = Path(
-        next(argument.split("=", 1)[1] for argument in pytest_command if argument.startswith("--basetemp="))
+        next(
+            argument.split("=", 1)[1]
+            for argument in pytest_command
+            if argument.startswith("--basetemp=")
+        )
     )
     assert basetemp.parent == tmp_path.parent / "kgt"
     assert basetemp.name

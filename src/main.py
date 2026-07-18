@@ -7,14 +7,20 @@ from mcp.server.fastmcp import FastMCP
 
 from src.karst_core.database.database import Database
 from src.karst_core.database.database_session import get_project_id
-from src.git_logic import do_backfill_git_history
+from src.karst_core.embeddings import do_semantic_search
+from src.karst_core.git_history import do_backfill_git_history
 from src.karst_core.indexing.service import ProjectIndexService
 from src.karst_core.parser import CodeParser, ParseStatus, ParseSummary
-from src.query_logic import do_find_deps, do_semantic_search
-from src.query_cursor import SymbolFilters, SymbolPageCursorCodec
-from src.query_service import QueryService
-from src.query_models import ApiError, QueryErrorCode, SymbolPageError
-from src.symbol_repository import SymbolRepository
+from src.karst_core.query import (
+    ApiError,
+    QueryErrorCode,
+    QueryService,
+    SymbolFilters,
+    SymbolPageCursorCodec,
+    SymbolPageError,
+    SymbolRepository,
+    do_find_deps,
+)
 from src.core_settings import CoreSettings, core_settings
 from src.tool_service import GraphToolService
 
@@ -60,9 +66,7 @@ def _tool_service() -> GraphToolService:
     return GraphToolService(core_settings, _database_factory)
 
 
-def _query_service(
-    database: Database, cursor_key: bytes | None = None
-) -> QueryService:
+def _query_service(database: Database, cursor_key: bytes | None = None) -> QueryService:
     """Build the read-only query boundary with an injectable cursor key."""
     codec = SymbolPageCursorCodec(cursor_key if cursor_key is not None else _CURSOR_KEY)
     return QueryService(SymbolRepository(database, codec))
@@ -83,13 +87,21 @@ def list_symbols(
     try:
         project_id = get_project_id(database, project_name)
         filters = SymbolFilters(kind, name, qualified_name, relative_path)
-        result = _query_service(database).list_symbols(project_id, filters, limit, cursor)
+        result = _query_service(database).list_symbols(
+            project_id, filters, limit, cursor
+        )
         return result.model_dump_json()
     except ValueError as error:
-        code = (QueryErrorCode.PROJECT_NOT_FOUND
-                if str(error) == "Project not found."
-                else QueryErrorCode.LIMIT_EXCEEDED)
-        message = "Project not found." if code is QueryErrorCode.PROJECT_NOT_FOUND else "Query parameters are invalid."
+        code = (
+            QueryErrorCode.PROJECT_NOT_FOUND
+            if str(error) == "Project not found."
+            else QueryErrorCode.LIMIT_EXCEEDED
+        )
+        message = (
+            "Project not found."
+            if code is QueryErrorCode.PROJECT_NOT_FOUND
+            else "Query parameters are invalid."
+        )
         return SymbolPageError(
             error=ApiError(code=code, message=message, retryable=False)
         ).model_dump_json()
