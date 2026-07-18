@@ -8,7 +8,7 @@ from src.karst_core.embeddings import do_semantic_search
 from src.karst_core.git_history import do_backfill_git_history
 from src.karst_core.indexing.service import ProjectIndexService
 from src.karst_core.parser import CodeParser, ParseStatus, ParseSummary
-from src.karst_mcp.contracts import define_tool_contracts
+from src.karst_mcp.contracts import ToolAnnotationPolicy, define_tool_contracts
 from src.karst_mcp.handlers import KarstToolHandlers
 from src.karst_mcp.server import create_server
 from src.tool_service import GraphToolService
@@ -40,6 +40,26 @@ log_commit = _handlers.log_commit
 backfill_git_history = _handlers.backfill_git_history
 semantic_search = _handlers.semantic_search
 
+_CLOSED_IDEMPOTENT_MUTATION = ToolAnnotationPolicy(False, False, True, False)
+_CLOSED_ADDITIVE_MUTATION = ToolAnnotationPolicy(False, False, False, False)
+_OPEN_ADDITIVE_MUTATION = ToolAnnotationPolicy(False, False, False, True)
+_CLOSED_DESTRUCTIVE_MUTATION = ToolAnnotationPolicy(False, True, False, False)
+_OPEN_DESTRUCTIVE_MUTATION = ToolAnnotationPolicy(False, True, False, True)
+
+_TOOL_ANNOTATIONS = {
+    "list_symbols": _CLOSED_IDEMPOTENT_MUTATION,
+    "index_project": _OPEN_DESTRUCTIVE_MUTATION,
+    "update_graph": _OPEN_DESTRUCTIVE_MUTATION,
+    "rebuild_database": _CLOSED_DESTRUCTIVE_MUTATION,
+    "query_symbol": _OPEN_ADDITIVE_MUTATION,
+    "get_file_outline": _OPEN_ADDITIVE_MUTATION,
+    "find_dependencies": _OPEN_ADDITIVE_MUTATION,
+    "find_dependents": _OPEN_ADDITIVE_MUTATION,
+    "log_commit": _CLOSED_DESTRUCTIVE_MUTATION,
+    "backfill_git_history": _OPEN_DESTRUCTIVE_MUTATION,
+    "semantic_search": _CLOSED_ADDITIVE_MUTATION,
+}
+
 TOOL_CONTRACTS = define_tool_contracts(
     list_symbols,
     index_project,
@@ -52,6 +72,7 @@ TOOL_CONTRACTS = define_tool_contracts(
     log_commit,
     backfill_git_history,
     semantic_search,
+    annotations=_TOOL_ANNOTATIONS,
 )
 mcp = create_server("Karst", TOOL_CONTRACTS)
 
