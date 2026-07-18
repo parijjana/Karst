@@ -40,12 +40,7 @@ from src.web_auth import (
     session_store as _session_store,
     set_session_cookie as _set_session_cookie,
 )
-from src.web_data import (
-    get_db,
-    page_bounds as _page_bounds,
-    router as data_router,
-    table_exists,
-)
+from src.web_data import page_bounds as _page_bounds, router as data_router
 from src.web_graph import router as graph_router
 from src.web_history import router as history_router
 from src.web_sessions import (
@@ -69,12 +64,10 @@ __all__ = [
     "_page_bounds",
     "app",
     "create_app",
-    "get_db",
     "request_settings",
     "router",
     "run_dashboard",
     "secrets",
-    "table_exists",
 ]
 
 

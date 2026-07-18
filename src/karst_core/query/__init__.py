@@ -27,6 +27,7 @@ from src.karst_core.query.models import (
     SymbolPageSuccess,
     SymbolRef,
 )
+from src.karst_core.query.operational import OperationalReadService
 from src.karst_core.query.repository import QueryRepositoryError, SymbolRepository
 from src.karst_core.query.service import QueryService
 from src.karst_core.query.structural_graph import (
@@ -46,6 +47,7 @@ __all__ = [
     "MAX_ERROR_MESSAGE_UTF8_BYTES",
     "MAX_PAGE_ITEMS",
     "MAX_SNIPPET_UTF8_BYTES",
+    "OperationalReadService",
     "ApiError",
     "InvalidCursorError",
     "QueryErrorCode",

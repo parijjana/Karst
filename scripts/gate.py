@@ -66,6 +66,7 @@ DEFAULT_MODULE_COVERAGE_MIN = {
     "src/karst_core/parser/facade.py": 80.0,
     "src/karst_core/parser/models.py": 80.0,
     "src/karst_core/parser/runtime.py": 80.0,
+    "src/karst_core/query/operational.py": 70.0,
     "src/karst_mcp/contracts.py": 80.0,
     "src/karst_mcp/handlers.py": 70.0,
     "src/karst_mcp/server.py": 80.0,
