@@ -76,7 +76,7 @@ def run_installer(location: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.parametrize("collision_name", ["pre-commit", "post-commit"])
+@pytest.mark.parametrize("collision_name", ["pre-commit", "pre-push", "post-commit"])
 @pytest.mark.parametrize("collision_kind", ["file", "directory"])
 def test_installer_refuses_any_hook_collision_without_partial_install(
     tmp_path: Path, collision_name: str, collision_kind: str
@@ -94,8 +94,8 @@ def test_installer_refuses_any_hook_collision_without_partial_install(
 
     assert result.returncode != 0
     assert collision.exists()
-    other_name = "post-commit" if collision_name == "pre-commit" else "pre-commit"
-    assert not (hooks / other_name).exists()
+    other_names = {"pre-commit", "pre-push", "post-commit"} - {collision_name}
+    assert all(not (hooks / name).exists() for name in other_names)
     assert "Refusing to overwrite" in result.stderr
 
 
@@ -111,7 +111,8 @@ def test_installer_resolves_custom_hooks_path_from_repository_subdirectory(
     first = run_installer(nested)
     hooks = effective_hooks_path(repository)
     first_contents = {
-        name: (hooks / name).read_bytes() for name in ["pre-commit", "post-commit"]
+        name: (hooks / name).read_bytes()
+        for name in ["pre-commit", "pre-push", "post-commit"]
     }
     second = run_installer(nested)
 
@@ -178,16 +179,65 @@ def test_installed_hooks_are_executable_by_git(tmp_path: Path) -> None:
         "from pathlib import Path\nPath('post-ran').write_text('yes')\n",
         encoding="utf-8",
     )
+    (scripts / "gate.py").write_text(
+        "from pathlib import Path\nPath('push-gate-ran').write_text('yes')\n",
+        encoding="utf-8",
+    )
     installed = run_installer(repository)
     assert installed.returncode == 0, installed.stderr
 
     pre = git(repository, "hook", "run", "pre-commit")
+    push = git(repository, "hook", "run", "pre-push")
     post = git(repository, "hook", "run", "post-commit")
 
     assert pre.returncode == 0, pre.stderr
+    assert push.returncode == 0, push.stderr
     assert post.returncode == 0, post.stderr
     assert (repository / "pre-ran").read_text(encoding="utf-8") == "yes"
+    assert (repository / "push-gate-ran").read_text(encoding="utf-8") == "yes"
     assert (repository / "post-ran").read_text(encoding="utf-8") == "yes"
+
+
+def test_installer_wires_the_authoritative_gate_before_commit_and_push(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    initialize_repository(repository)
+
+    result = run_installer(repository)
+    hooks = effective_hooks_path(repository)
+
+    assert result.returncode == 0, result.stderr
+    assert "uv run python scripts/git-pre-commit.py" in (
+        hooks / "pre-commit"
+    ).read_text(encoding="utf-8")
+    assert "uv run python scripts/gate.py --timeout-seconds 300" in (
+        hooks / "pre-push"
+    ).read_text(encoding="utf-8")
+
+
+def test_installer_upgrades_recognized_legacy_karst_hooks(tmp_path: Path) -> None:
+    repository = tmp_path / "repo"
+    initialize_repository(repository)
+    hooks = effective_hooks_path(repository)
+    (hooks / "pre-commit").write_text(
+        "#!/bin/bash\n\nuv run python scripts/git-pre-commit.py\n",
+        encoding="utf-8",
+    )
+    (hooks / "post-commit").write_text(
+        "#!/bin/bash\n# Post-commit hook to log commits to code graph\n"
+        "python scripts/git-post-commit.py\n",
+        encoding="utf-8",
+    )
+
+    result = run_installer(repository)
+
+    assert result.returncode == 0, result.stderr
+    assert "Managed by Karst" in (hooks / "pre-commit").read_text(encoding="utf-8")
+    assert "uv run python scripts/git-post-commit.py" in (
+        hooks / "post-commit"
+    ).read_text(encoding="utf-8")
+    assert (hooks / "pre-push").is_file()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX executable mode is not available")
